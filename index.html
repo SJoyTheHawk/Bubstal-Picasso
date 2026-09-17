@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bubstal Picaso - Product Image Prompt Generator</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎨 Bubstal Picaso</h1>
+            <p>AI-Powered Product Image Prompt Generator</p>
+        </header>
+
+        <main class="layout">
+            <!-- Left Panel: Inputs -->
+            <section class="input-panel">
+                <div class="section-card">
+                    <h2>🔐 Authentication</h2>
+                    <div class="form-group">
+                        <label>Google Cloud Application Default Credentials</label>
+                        <p class="hint" id="auth-status">Checking server credentials...</p>
+                    </div>
+                </div>
+
+                <div class="section-card">
+                    <h2>Platform & Images</h2>
+
+                    <div class="form-group">
+                        <label for="platform-select">Platform Template</label>
+                        <select id="platform-select">
+                            <option value="amazon-jp">Amazon.co.jp</option>
+                            <option value="shopee-tw">Shopee TW</option>
+                            <option value="rakuten">Rakuten</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="image-count">Number of Images</label>
+                        <select id="image-count">
+                            <option value="1">1</option>
+                            <option value="3">3</option>
+                            <option value="5">5</option>
+                            <option value="7" selected>7</option>
+                            <option value="10">10</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="section-card">
+                    <h2>Product Images</h2>
+                    <div class="dropzone" id="product-dropzone">
+                        <div class="dropzone-placeholder">
+                            <span class="icon">📁</span>
+                            <p>Drag & drop product images here</p>
+                            <button type="button" class="btn-secondary">
+                                Browse Files
+                            </button>
+                        </div>
+                        <input type="file" id="product-file-input" multiple accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" style="display: none;">
+                    </div>
+                    <div id="product-preview" class="image-preview-grid"></div>
+                </div>
+
+                <div class="section-card">
+                    <h2>Reference Images</h2>
+                    <div class="dropzone" id="reference-dropzone">
+                        <div class="dropzone-placeholder">
+                            <span class="icon">🖼️</span>
+                            <p>Drag & drop reference images here</p>
+                            <button type="button" class="btn-secondary">
+                                Browse Files
+                            </button>
+                        </div>
+                        <input type="file" id="reference-file-input" multiple accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" style="display: none;">
+                    </div>
+                    <div id="reference-preview" class="reference-preview-grid"></div>
+                </div>
+
+                <div class="section-card">
+                    <h2>Constraints</h2>
+                    <p class="hint">Check to enable, then choose locked (must follow) or preferred (should follow)</p>
+
+                    <div class="constraint-list" id="constraint-list">
+                        <!-- Constraints will be populated by JS based on platform -->
+                    </div>
+                </div>
+
+                <div class="section-card">
+                    <h2>Batch Direction</h2>
+                    <textarea id="batch-direction" rows="4" placeholder="Campaign message, seasonal theme, target customer, special requirements..."></textarea>
+                </div>
+
+                <div class="action-buttons">
+                    <button id="generate-btn" class="btn-primary">🚀 Generate Prompts</button>
+                    <button id="save-draft-btn" class="btn-secondary">💾 Save Draft</button>
+                </div>
+            </section>
+
+            <!-- Right Panel: Results & History -->
+            <section class="results-panel">
+                <div class="section-card">
+                    <h2>Results</h2>
+                    <div id="results-container" class="results-container">
+                        <div class="empty-state">
+                            <span class="icon">✨</span>
+                            <p>Generate prompts to see results here</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-card">
+                    <h2>History</h2>
+                    <div id="history-container" class="history-container">
+                        <div class="empty-state">
+                            <span class="icon">📚</span>
+                            <p>No saved batches yet</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

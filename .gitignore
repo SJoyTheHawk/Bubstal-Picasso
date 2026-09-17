@@ -1,0 +1,6 @@
+node_modules/
+.DS_Store
+
+# Never commit long-lived Google Cloud credential keys.
+auth/*.json
+*.service-account.json
