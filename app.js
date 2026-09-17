@@ -2,6 +2,28 @@ const MODEL_ID = 'gemini-3-pro-image';
 const PROMPT_FORMAT_VERSION = '2.0';
 const MAX_INPUT_IMAGES = 14;
 
+function uiText(key, variables = {}, fallback = key) {
+    return typeof window !== 'undefined' && window.BubstalI18n
+        ? window.BubstalI18n.t(key, variables)
+        : fallback;
+}
+
+function localizedPurpose(purpose) {
+    const key = String(purpose || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_|_$/g, '');
+    return uiText(`purpose.${key}`, {}, purpose);
+}
+
+function localizedCategory(categoryId) {
+    return uiText(`category.${categoryId}`, {}, CATEGORY_PRESETS[categoryId]?.name || categoryId);
+}
+
+function localizedPlatform(platformId) {
+    return uiText(`platform.${platformId}`, {}, PLATFORM_TEMPLATES[platformId]?.name || platformId);
+}
+
 // Marketplace presets are practical production guidance, not legal certification.
 const PLATFORM_TEMPLATES = {
     'amazon-jp': {
@@ -279,8 +301,8 @@ function renderProductImages() {
         const item = document.createElement('div');
         item.className = 'image-preview-item';
         item.innerHTML = `
-            <img src="${img.data}" alt="Product ${index + 1}">
-            <button class="remove-btn" onclick="removeProductImage(${index})">×</button>
+            <img src="${img.data}" alt="${escapeHtml(uiText('media.productAlt', { index: index + 1 }, `Product ${index + 1}`))}">
+            <button type="button" class="remove-btn" aria-label="${escapeHtml(uiText('media.removeProduct', { index: index + 1 }, `Remove product image ${index + 1}`))}" onclick="removeProductImage(${index})">×</button>
         `;
         container.appendChild(item);
     });
@@ -295,29 +317,29 @@ function renderReferenceImages() {
         item.className = 'reference-preview-item';
         item.innerHTML = `
             <div class="reference-preview-content">
-                <img src="${img.data}" alt="Reference ${index + 1}">
+                <img src="${img.data}" alt="${escapeHtml(uiText('media.referenceAlt', { index: index + 1 }, `Reference ${index + 1}`))}">
                 <div class="reference-roles">
-                    <h4>Reference Type:</h4>
+                    <h4>${escapeHtml(uiText('reference.type', {}, 'Reference type'))}</h4>
                     <div class="role-checkboxes">
                         <label>
                             <input type="checkbox" ${img.roles.includes('style') ? 'checked' : ''}
                                    onchange="toggleReferenceRole(${index}, 'style')">
-                            Style Reference
+                            ${escapeHtml(uiText('reference.style', {}, 'Style reference'))}
                         </label>
                         <label>
                             <input type="checkbox" ${img.roles.includes('layout') ? 'checked' : ''}
                                    onchange="toggleReferenceRole(${index}, 'layout')">
-                            Layout Reference
+                            ${escapeHtml(uiText('reference.layout', {}, 'Layout reference'))}
                         </label>
                         <label>
                             <input type="checkbox" ${img.roles.includes('color') ? 'checked' : ''}
                                    onchange="toggleReferenceRole(${index}, 'color')">
-                            Color Reference
+                            ${escapeHtml(uiText('reference.color', {}, 'Color reference'))}
                         </label>
                     </div>
                 </div>
             </div>
-            <button class="remove-btn" onclick="removeReferenceImage(${index})" style="position: absolute; top: 1rem; right: 1rem;">×</button>
+            <button type="button" class="remove-btn" aria-label="${escapeHtml(uiText('media.removeReference', { index: index + 1 }, `Remove reference image ${index + 1}`))}" onclick="removeReferenceImage(${index})">×</button>
         `;
         container.appendChild(item);
     });
@@ -331,6 +353,7 @@ function renderConstraints() {
     container.innerHTML = '';
 
     template.constraints.forEach(constraint => {
+        const label = uiText(`constraint.${constraint.id}`, {}, constraint.label);
         const savedConstraint = state.constraints[constraint.id] || {
             enabled: false,
             level: constraint.defaultLevel || 'preferred',
@@ -342,24 +365,24 @@ function renderConstraints() {
         item.id = `constraint-${constraint.id}`;
 
         const inputTag = constraint.type === 'textarea'
-            ? `<textarea rows="3" placeholder="Enter ${escapeHtml(constraint.label.toLowerCase())}..." ${!savedConstraint.enabled ? 'disabled' : ''}>${escapeHtml(savedConstraint.value)}</textarea>`
-            : `<input type="text" placeholder="Enter ${escapeHtml(constraint.label.toLowerCase())}..." value="${escapeHtml(savedConstraint.value)}" ${!savedConstraint.enabled ? 'disabled' : ''}>`;
+            ? `<textarea rows="3" placeholder="${escapeHtml(uiText('rules.inputPlaceholder', { label }, `Enter ${label.toLowerCase()}...`))}" ${!savedConstraint.enabled ? 'disabled' : ''}>${escapeHtml(savedConstraint.value)}</textarea>`
+            : `<input type="text" placeholder="${escapeHtml(uiText('rules.inputPlaceholder', { label }, `Enter ${label.toLowerCase()}...`))}" value="${escapeHtml(savedConstraint.value)}" ${!savedConstraint.enabled ? 'disabled' : ''}>`;
 
         item.innerHTML = `
             <div class="constraint-header">
                 <input type="checkbox" id="check-${constraint.id}" ${savedConstraint.enabled ? 'checked' : ''}
                        onchange="toggleConstraint('${constraint.id}')">
-                <label for="check-${constraint.id}">${constraint.label}</label>
+                <label for="check-${constraint.id}">${escapeHtml(label)}</label>
                 <div class="level-toggle">
                     <button class="level-btn locked ${savedConstraint.level === 'locked' ? 'active' : ''}"
                             onclick="setConstraintLevel('${constraint.id}', 'locked')"
                             ${!savedConstraint.enabled ? 'disabled' : ''}>
-                        Must Have
+                        ${escapeHtml(uiText('policy.must', {}, 'Must Have'))}
                     </button>
                     <button class="level-btn preferred ${savedConstraint.level === 'preferred' ? 'active' : ''}"
                             onclick="setConstraintLevel('${constraint.id}', 'preferred')"
                             ${!savedConstraint.enabled ? 'disabled' : ''}>
-                        Preferred
+                        ${escapeHtml(uiText('policy.preferred', {}, 'Preferred'))}
                     </button>
                 </div>
             </div>
@@ -591,17 +614,17 @@ function compilePromptRecords() {
 
 function validateBatchInputs({ requireAuth = false } = {}) {
     if (requireAuth && !state.authReady) {
-        alert('Application Default Credentials are not configured on the server.');
+        alert(uiText('alert.auth', {}, 'Application Default Credentials are not configured on the server.'));
         return false;
     }
 
     if (state.productImages.length === 0) {
-        alert('Please add at least one product image.');
+        alert(uiText('alert.addProductImage', {}, 'Please add at least one product image.'));
         return false;
     }
 
     if (!state.productName.trim()) {
-        alert('Please enter the product name.');
+        alert(uiText('alert.enterProductName', {}, 'Please enter the product name.'));
         return false;
     }
 
@@ -614,7 +637,10 @@ function renderPromptPreview(promptRecords, selectedIndex = 0) {
     document.getElementById('prompt-preview-content').textContent = record.prompt;
     document.getElementById('prompt-preview-model').textContent = MODEL_ID;
     document.getElementById('prompt-preview-output').textContent = `${record.aspectRatio}, PNG, 2K`;
-    document.getElementById('prompt-preview-assets').textContent = `${assets.productImages.length} product + ${assets.referenceImages.length} reference`;
+    document.getElementById('prompt-preview-assets').textContent = uiText('prompt.assets', {
+        product: assets.productImages.length,
+        reference: assets.referenceImages.length
+    }, `${assets.productImages.length} product + ${assets.referenceImages.length} reference`);
 }
 
 function previewPrompts() {
@@ -630,12 +656,19 @@ function previewPrompts() {
     promptRecords.forEach((record, index) => {
         const option = document.createElement('option');
         option.value = String(index);
-        option.textContent = `Image ${record.index}: ${record.purpose}`;
+        option.textContent = uiText('prompt.option', {
+            index: record.index,
+            purpose: localizedPurpose(record.purpose)
+        }, `Image ${record.index}: ${record.purpose}`);
         select.appendChild(option);
     });
     select.value = '0';
     select.onchange = () => renderPromptPreview(promptRecords, Number(select.value));
-    document.getElementById('prompt-preview-summary').textContent = `${template.name} / ${category.name} / ${promptRecords.length} prompts`;
+    document.getElementById('prompt-preview-summary').textContent = uiText('prompt.summary', {
+        platform: localizedPlatform(state.platform),
+        category: localizedCategory(state.category),
+        count: promptRecords.length
+    }, `${template.name} / ${category.name} / ${promptRecords.length} prompts`);
     renderPromptPreview(promptRecords);
     dialog.showModal();
 }
@@ -659,14 +692,17 @@ async function copyPreviewPrompt() {
             textarea.remove();
         }
 
-        button.title = 'Copied';
-        button.setAttribute('aria-label', 'Prompt copied');
+        button.textContent = uiText('prompt.copied', {}, 'Copied');
+        button.title = uiText('prompt.copied', {}, 'Copied');
+        button.setAttribute('aria-label', uiText('prompt.copiedAria', {}, 'Prompt copied'));
         window.setTimeout(() => {
-            button.title = 'Copy prompt';
-            button.setAttribute('aria-label', 'Copy prompt');
+            button.textContent = uiText('prompt.copy', {}, 'Copy prompt');
+            button.title = uiText('prompt.copy', {}, 'Copy prompt');
+            button.setAttribute('aria-label', uiText('prompt.copy', {}, 'Copy prompt'));
         }, 1500);
     } catch (error) {
-        button.title = 'Copy failed';
+        button.textContent = uiText('prompt.copyFailed', {}, 'Copy failed');
+        button.title = uiText('prompt.copyFailed', {}, 'Copy failed');
         console.error('Could not copy prompt:', error);
     }
 }
@@ -675,13 +711,19 @@ async function copyPreviewPrompt() {
 async function generatePrompts() {
     const generateBtn = document.getElementById('generate-btn');
     const resultsContainer = document.getElementById('results-container');
+    const generationStatus = document.getElementById('generation-status');
+    const generationStatusText = document.getElementById('generation-status-text');
 
     if (!validateBatchInputs({ requireAuth: true })) return;
 
     generateBtn.disabled = true;
-    generateBtn.textContent = '⏳ Generating...';
+    if (generateBtn.dataset) generateBtn.dataset.busy = 'true';
+    generateBtn.textContent = uiText('generation.generating', {}, 'Generating...');
 
-    resultsContainer.innerHTML = '<div class="loading"><div class="spinner"></div><span>Preparing batch prompts...</span></div>';
+    resultsContainer.innerHTML = '';
+    if (generationStatus) generationStatus.hidden = false;
+    if (generationStatusText) generationStatusText.textContent = uiText('generation.preparing', {}, 'Preparing batch prompts...');
+    document.getElementById('results-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
     try {
         const now = new Date().toISOString();
@@ -708,7 +750,12 @@ async function generatePrompts() {
 
         const assets = getSelectedAssets();
         for (const promptRecord of promptRecords) {
-            resultsContainer.innerHTML = `<div class="loading"><div class="spinner"></div><span>Generating image ${promptRecord.index} of ${state.imageCount}...</span></div>`;
+            if (generationStatusText) {
+                generationStatusText.textContent = uiText('generation.progress', {
+                    index: promptRecord.index,
+                    count: state.imageCount
+                }, `Generating image ${promptRecord.index} of ${state.imageCount}...`);
+            }
 
             const startedAt = new Date().toISOString();
             let outputRecord;
@@ -746,6 +793,7 @@ async function generatePrompts() {
             batch.results = buildLegacyResults(batch);
             batch.updatedAt = new Date().toISOString();
             await saveBatch(batch);
+            renderResults(getDisplayResults(batch));
         }
 
         batch.status = batch.outputRecords.some(output => output.status === 'failed')
@@ -761,54 +809,62 @@ async function generatePrompts() {
 
     } catch (error) {
         console.error('Generation failed:', error);
-        resultsContainer.innerHTML = `<div class="empty-state"><span class="icon">❌</span><p>Generation failed: ${error.message}</p></div>`;
+        resultsContainer.innerHTML = `<div class="empty-state"><p>${escapeHtml(uiText('results.failed', { error: error.message }, `Generation failed: ${error.message}`))}</p></div>`;
     } finally {
-        generateBtn.disabled = false;
-        generateBtn.textContent = 'Generate Batch';
+        if (generationStatus) generationStatus.hidden = true;
+        if (generateBtn.dataset) generateBtn.dataset.busy = 'false';
+        generateBtn.textContent = uiText('actions.generate', {}, 'Generate batch');
+        if (typeof window !== 'undefined' && window.updateWorkbench) {
+            window.updateWorkbench();
+        } else {
+            generateBtn.disabled = false;
+        }
     }
 }
 
 // Nano Banana Pro API - server-provided ADC token
 async function callNanoBananaAPI(promptRecord, assets) {
     try {
-        const toImageInput = (dataUrl) => {
+        const toInlineData = (dataUrl) => {
             const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
             if (!match) throw new Error('An uploaded image has an unsupported format.');
 
             return {
-                type: 'image',
-                mime_type: match[1],
-                data: match[2]
+                inlineData: {
+                    mimeType: match[1],
+                    data: match[2]
+                }
             };
         };
 
-        const input = [{ type: 'text', text: promptRecord.prompt }];
+        const parts = [{ text: promptRecord.prompt }];
 
         assets.productImages.forEach((image, index) => {
-            input.push(
-                { type: 'text', text: `Product identity image ${index + 1}. This is the same product from another view; preserve its identity and visible details.` },
-                toImageInput(image.data)
+            parts.push(
+                { text: `Product identity image ${index + 1}. This is the same product from another view; preserve its identity and visible details.` },
+                toInlineData(image.data)
             );
         });
 
         assets.referenceImages.forEach((image, index) => {
             const relationship = promptRecord.referenceRelationships[index];
-            input.push(
-                { type: 'text', text: `Visual reference ${index + 1}: ${relationship.instruction}.` },
-                toImageInput(image.data)
+            parts.push(
+                { text: `Visual reference ${index + 1}: ${relationship.instruction}.` },
+                toInlineData(image.data)
             );
         });
 
+        // Vertex AI generateContent shape. The server adds project, location and
+        // the ADC bearer token, so the model name is not part of the body.
         const payload = {
-            model: MODEL_ID,
-            input,
-            response_format: {
-                type: 'image',
-                mime_type: 'image/png',
-                aspect_ratio: promptRecord.aspectRatio,
-                image_size: '2K'
-            },
-            store: false
+            contents: [{ role: 'user', parts }],
+            generationConfig: {
+                responseModalities: ['TEXT', 'IMAGE'],
+                imageConfig: {
+                    aspectRatio: promptRecord.aspectRatio,
+                    imageSize: '2K'
+                }
+            }
         };
 
         // The backend applies ADC and forwards the request without exposing a token.
@@ -826,19 +882,28 @@ async function callNanoBananaAPI(promptRecord, assets) {
         }
 
         const result = await response.json();
-        const outputImage = result.output_image;
+        const candidate = result.candidates?.[0];
+        const responseParts = candidate?.content?.parts || [];
+        const imagePart = responseParts.find(part => part.inlineData?.data || part.inline_data?.data);
+        const inlineData = imagePart?.inlineData || imagePart?.inline_data;
 
-        if (!outputImage?.data) {
-            throw new Error('Gemini returned no generated image.');
+        if (!inlineData?.data) {
+            const refusal = responseParts.find(part => part.text)?.text;
+            const blockReason = result.promptFeedback?.blockReason;
+            throw new Error(
+                refusal || blockReason
+                    ? `Gemini returned no image: ${refusal || blockReason}`
+                    : 'Gemini returned no generated image.'
+            );
         }
 
         return {
-            imageUrl: `data:${outputImage.mime_type || 'image/png'};base64,${outputImage.data}`,
+            imageUrl: `data:${inlineData.mimeType || inlineData.mime_type || 'image/png'};base64,${inlineData.data}`,
             metadata: {
-                id: result.id,
-                status: result.status,
-                model: result.model,
-                usage: result.usage || result.usage_metadata
+                model: MODEL_ID,
+                status: candidate.finishReason,
+                text: responseParts.find(part => part.text)?.text || '',
+                usage: result.usageMetadata
             }
         };
     } catch (error) {
@@ -895,7 +960,7 @@ function renderResults(results) {
     container.innerHTML = '';
 
     if (results.length === 0) {
-        container.innerHTML = '<div class="empty-state"><p>This batch has no generated outputs yet.</p></div>';
+        container.innerHTML = `<div class="empty-state"><p>${escapeHtml(uiText('results.noOutputs', {}, 'This batch has no generated outputs yet.'))}</p></div>`;
         return;
     }
 
@@ -903,17 +968,22 @@ function renderResults(results) {
         const item = document.createElement('div');
         item.className = 'result-item';
         const imageOrError = result.status === 'failed'
-            ? `<p class="result-error">Generation failed: ${escapeHtml(result.error || 'Unknown error')}</p>`
-            : `<img src="${result.imageUrl}" alt="Generated ${result.index}" class="result-image">`;
+            ? `<p class="result-error">${escapeHtml(uiText('results.failed', {
+                error: result.error || uiText('results.unknownError', {}, 'Unknown error')
+            }, `Generation failed: ${result.error || 'Unknown error'}`))}</p>`
+            : `<img src="${result.imageUrl}" alt="${escapeHtml(uiText('results.generatedAlt', { index: result.index }, `Generated image ${result.index}`))}" class="result-image">`;
         const overlayItems = result.copyPlan?.overlayText || [];
         const copyDetails = overlayItems.length > 0
-            ? `<details class="result-prompt"><summary>Text to add later</summary><pre>${escapeHtml(overlayItems.map(item => `${item.label}: ${item.value}`).join('\n'))}</pre></details>`
+            ? `<details class="result-prompt"><summary>${escapeHtml(uiText('results.overlayText', {}, 'Text to add later'))}</summary><pre>${escapeHtml(overlayItems.map(item => `${uiText(`constraint.${item.id}`, {}, item.label)}: ${item.value}`).join('\n'))}</pre></details>`
             : '';
         item.innerHTML = `
-            <h3>Image ${result.index}: ${escapeHtml(result.purpose)}</h3>
+            <h3>${escapeHtml(uiText('results.imageTitle', {
+                index: result.index,
+                purpose: localizedPurpose(result.purpose)
+            }, `Image ${result.index}: ${result.purpose}`))}</h3>
             ${imageOrError}
             <details class="result-prompt">
-                <summary>View Prompt</summary>
+                <summary>${escapeHtml(uiText('results.viewPrompt', {}, 'View prompt'))}</summary>
                 <pre>${escapeHtml(result.prompt || '')}</pre>
             </details>
             ${copyDetails}
@@ -928,7 +998,7 @@ async function loadHistory() {
     const batches = await loadBatches();
 
     if (batches.length === 0) {
-        container.innerHTML = '<div class="empty-state"><span class="icon">📚</span><p>No saved batches yet</p></div>';
+        container.innerHTML = `<div class="empty-state"><p>${escapeHtml(uiText('history.empty', {}, 'No saved batches yet.'))}</p></div>`;
         return;
     }
 
@@ -946,9 +1016,9 @@ async function loadHistory() {
         const item = document.createElement('div');
         item.className = 'history-item';
         item.innerHTML = `
-            <h4>${escapeHtml(template?.name || batch.platform)} - ${batch.imageCount} images</h4>
-            <div class="timestamp">${date.toLocaleString()}</div>
-            <div class="meta">${successCount} generated${failedCount ? `, ${failedCount} failed` : ''}</div>
+            <h4>${escapeHtml(uiText('history.itemTitle', { platform: localizedPlatform(batch.platform), count: batch.imageCount }, `${template?.name || batch.platform} - ${batch.imageCount} images`))}</h4>
+            <div class="timestamp">${date.toLocaleString(window.BubstalI18n?.getLocale?.() || 'en')}</div>
+            <div class="meta">${escapeHtml(uiText('history.generated', { count: successCount }, `${successCount} generated`))}${failedCount ? escapeHtml(uiText('history.failed', { count: failedCount }, `, ${failedCount} failed`)) : ''}</div>
         `;
         item.onclick = () => loadBatch(batch);
         container.appendChild(item);
@@ -986,13 +1056,16 @@ function loadBatch(batch) {
     renderResults(getDisplayResults(batch));
     updateExportButton();
 
+    const historyDialog = document.getElementById('history-dialog');
+    if (historyDialog?.open) historyDialog.close();
+
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // ===== SAVE DRAFT =====
 async function saveDraft() {
     if (state.productImages.length === 0) {
-        alert('Nothing to save. Add at least one product image first.');
+        alert(uiText('alert.nothingToSave', {}, 'Nothing to save. Add at least one product image first.'));
         return;
     }
 
@@ -1014,7 +1087,7 @@ async function saveDraft() {
     state.currentBatch = batch;
     await loadHistory();
 
-    alert('Draft saved successfully!');
+    alert(uiText('alert.draftSaved', {}, 'Draft saved successfully!'));
 }
 
 // ===== UTILITY =====
@@ -1153,17 +1226,48 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!response.ok) throw new Error('ADC is unavailable');
 
         state.authReady = true;
-        authStatus.textContent = 'Application Default Credentials ready';
+        authStatus.dataset.ready = 'true';
+        authStatus.textContent = uiText('auth.ready', {}, 'Application Default Credentials ready');
         authStatus.style.color = 'var(--success)';
     } catch (error) {
         state.authReady = false;
-        authStatus.textContent = 'Application Default Credentials unavailable';
+        authStatus.dataset.ready = 'false';
+        authStatus.textContent = uiText('auth.unavailable', {}, 'Application Default Credentials unavailable');
         authStatus.style.color = 'var(--danger)';
         console.error('ADC status check failed:', error);
+    }
+
+    if (typeof window !== 'undefined' && window.updateWorkbench) {
+        window.updateWorkbench();
     }
 
     // Initial render
     renderConstraints();
     updateExportButton();
     await loadHistory();
+
+    document.addEventListener('bubstal:localechange', async () => {
+        authStatus.textContent = state.authReady
+            ? uiText('auth.ready', {}, 'Application Default Credentials ready')
+            : uiText('auth.unavailable', {}, 'Application Default Credentials unavailable');
+        renderProductImages();
+        renderReferenceImages();
+        renderConstraints();
+        if (state.currentBatch) renderResults(getDisplayResults(state.currentBatch));
+        await loadHistory();
+
+        const previewDialog = document.getElementById('prompt-preview-dialog');
+        if (previewDialog.open) {
+            previewDialog.close();
+            previewPrompts();
+        }
+
+        const generateBtn = document.getElementById('generate-btn');
+        if (generateBtn.dataset.busy === 'true') {
+            generateBtn.textContent = uiText('generation.generating', {}, 'Generating...');
+        }
+        if (typeof window !== 'undefined' && window.updateWorkbench) {
+            window.updateWorkbench();
+        }
+    });
 });

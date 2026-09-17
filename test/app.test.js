@@ -109,7 +109,12 @@ test('Nano Banana request includes every selected image and the slot aspect rati
             requestBody = JSON.parse(options.body);
             return {
                 ok: true,
-                json: async () => ({ output_image: { mime_type: 'image/png', data: 'ZmFrZQ==' } })
+                json: async () => ({
+                    candidates: [{
+                        finishReason: 'STOP',
+                        content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'ZmFrZQ==' } }] }
+                    }]
+                })
             };
         }
     });
@@ -120,9 +125,10 @@ test('Nano Banana request includes every selected image and the slot aspect rati
     const record = api.buildPromptRecord(0);
 
     await api.callNanoBananaAPI(record, api.getSelectedAssets());
-    assert.equal(requestBody.response_format.aspect_ratio, '1:1');
-    assert.equal(requestBody.response_format.image_size, '2K');
-    assert.equal(requestBody.input.filter(item => item.type === 'image').length, 3);
+    assert.equal(requestBody.generationConfig.imageConfig.aspectRatio, '1:1');
+    assert.equal(requestBody.generationConfig.imageConfig.imageSize, '2K');
+    assert.deepEqual(requestBody.generationConfig.responseModalities, ['TEXT', 'IMAGE']);
+    assert.equal(requestBody.contents[0].parts.filter(part => part.inlineData).length, 3);
 });
 
 test('output export excludes local source and reference image binaries', async () => {
@@ -179,12 +185,13 @@ test('compiled prompts and each failed or successful output are saved incrementa
     state.imageCount = 2;
     api.setState(state);
     let callCount = 0;
+    const renderedCounts = [];
     context.saveBatch = async batch => {
         saved.push(JSON.parse(JSON.stringify(batch)));
         return batch.id;
     };
     context.loadHistory = async () => {};
-    context.renderResults = () => {};
+    context.renderResults = results => renderedCounts.push(results.length);
     context.callNanoBananaAPI = async () => {
         callCount += 1;
         if (callCount === 2) throw new Error('simulated failure');
@@ -197,6 +204,7 @@ test('compiled prompts and each failed or successful output are saved incrementa
     assert.equal(saved[1].outputRecords[0].status, 'success');
     assert.equal(saved[2].outputRecords[1].status, 'failed');
     assert.equal(saved.at(-1).status, 'completed-with-errors');
+    assert.deepEqual(renderedCounts.slice(0, 2), [1, 2]);
 });
 
 test('prompt preview displays compiled prompts without authentication or API calls', () => {

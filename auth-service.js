@@ -5,12 +5,30 @@ const { GoogleAuth } = require('google-auth-library');
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 
+// Vertex AI (agent platform) only needs the cloud-platform scope. The model is
+// called as a Model Garden publisher model, not through the API-key surface.
 const auth = new GoogleAuth({
-    scopes: [
-        'https://www.googleapis.com/auth/cloud-platform',
-        'https://www.googleapis.com/auth/generative-language.retriever'
-    ]
+    scopes: ['https://www.googleapis.com/auth/cloud-platform']
 });
+
+const MODEL_ID = process.env.GEMINI_MODEL_ID || 'gemini-3-pro-image';
+const LOCATION = process.env.GEMINI_LOCATION || 'global';
+
+// The multi-region "global" endpoint has no region prefix; regional endpoints do.
+function buildModelUrl(projectId) {
+    const host = LOCATION === 'global'
+        ? 'aiplatform.googleapis.com'
+        : `${LOCATION}-aiplatform.googleapis.com`;
+
+    return `https://${host}/v1/projects/${projectId}/locations/${LOCATION}`
+        + `/publishers/google/models/${MODEL_ID}:generateContent`;
+}
+
+async function resolveProjectId() {
+    return process.env.GEMINI_PROJECT_ID
+        || process.env.GOOGLE_CLOUD_PROJECT
+        || await auth.getProjectId();
+}
 
 function getGoogleApiError(error) {
     const responseData = error.response?.data;
@@ -28,7 +46,8 @@ function getGoogleApiError(error) {
 app.get('/api/auth/status', async (req, res) => {
     try {
         await auth.getClient();
-        res.json({ authenticated: true });
+        const projectId = await resolveProjectId();
+        res.json({ authenticated: true, projectId, model: MODEL_ID, location: LOCATION });
     } catch (error) {
         console.error('ADC configuration error:', error.message);
         res.status(503).json({
@@ -43,11 +62,12 @@ app.get('/api/auth/status', async (req, res) => {
 app.post('/api/generate', async (req, res) => {
     try {
         const client = await auth.getClient();
-        const projectId = await auth.getProjectId();
+        const projectId = await resolveProjectId();
         const response = await client.request({
-            url: 'https://generativelanguage.googleapis.com/v1beta/interactions',
+            url: buildModelUrl(projectId),
             method: 'POST',
             headers: {
+                'Content-Type': 'application/json',
                 'x-goog-user-project': projectId
             },
             data: req.body

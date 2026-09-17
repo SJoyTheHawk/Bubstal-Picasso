@@ -7,187 +7,383 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>Bubstal Picaso</h1>
-            <p>AI product image production for eCommerce teams</p>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <div class="brand">
+                <span class="brand-mark" aria-hidden="true">B</span>
+                <div class="brand-text">
+                    <strong>Bubstal Picaso</strong>
+                    <span data-i18n="brand.subtitle">Product image production</span>
+                </div>
+            </div>
+            <div class="topbar-actions">
+                <div class="auth-status" data-i18n-title="auth.title" title="Google Cloud Application Default Credentials">
+                    <span class="auth-dot" id="auth-dot" aria-hidden="true"></span>
+                    <span id="auth-status" data-i18n="auth.checking">Checking server credentials...</span>
+                </div>
+                <label class="language-control">
+                    <span class="sr-only" data-i18n="language.label">Language</span>
+                    <select id="language-select" data-i18n-aria-label="language.label" aria-label="Language">
+                        <option value="en">English</option>
+                        <option value="zh-TW">繁體中文</option>
+                    </select>
+                </label>
+                <button id="history-btn" type="button" class="btn-secondary btn-sm" data-i18n="nav.history">History</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="workspace">
+        <header class="workspace-heading">
+            <div>
+                <p class="eyebrow" data-i18n="work.eyebrow">New batch</p>
+                <h1 data-i18n="work.title">Create product images</h1>
+                <p data-i18n="work.intro">Provide the product once, add only the direction that matters, then review before generating.</p>
+            </div>
+            <div class="input-policy">
+                <span><strong class="policy-must" data-i18n="policy.must">Must Have</strong> <span data-i18n="policy.exact">exact</span></span>
+                <span><strong class="policy-preferred" data-i18n="policy.preferred">Preferred</strong> <span data-i18n="policy.direction">direction</span></span>
+                <span><strong class="policy-open" data-i18n="policy.open">Open</strong> <span data-i18n="policy.aiDecides">AI decides</span></span>
+            </div>
         </header>
 
-        <main class="layout">
-            <!-- Left Panel: Inputs -->
-            <section class="input-panel">
-                <div class="section-card">
-                    <h2>🔐 Authentication</h2>
-                    <div class="form-group">
-                        <label>Google Cloud Application Default Credentials</label>
-                        <p class="hint" id="auth-status">Checking server credentials...</p>
-                    </div>
-                </div>
-
-                <div class="section-card">
-                    <h2>Platform & Images</h2>
-
-                    <div class="form-group">
-                        <label for="platform-select">Platform Template</label>
-                        <select id="platform-select">
-                            <option value="amazon-jp">Amazon.co.jp</option>
-                            <option value="shopee-tw">Shopee TW</option>
-                            <option value="rakuten">Rakuten</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="image-count">Number of Images</label>
-                        <select id="image-count">
-                            <option value="1">1</option>
-                            <option value="2">2</option>
-                            <option value="3">3</option>
-                            <option value="4">4</option>
-                            <option value="5">5</option>
-                            <option value="6">6</option>
-                            <option value="7" selected>7</option>
-                            <option value="8">8</option>
-                            <option value="9">9</option>
-                            <option value="10">10</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="category-select">Product Category</label>
-                        <select id="category-select">
-                            <option value="beauty">Beauty &amp; Personal Care</option>
-                            <option value="electronics">Electronics &amp; Appliances</option>
-                            <option value="apparel">Apparel &amp; Accessories</option>
-                            <option value="food">Food &amp; Beverage</option>
-                            <option value="home">Home &amp; Living</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="section-card">
-                    <h2>Product Details</h2>
-                    <div class="form-group">
-                        <label for="product-name">Product Name</label>
-                        <input id="product-name" type="text" placeholder="Required">
-                    </div>
-                    <div class="form-group">
-                        <label for="product-variant">Variant</label>
-                        <input id="product-variant" type="text" placeholder="Color, size, flavor, or model (optional)">
-                    </div>
-                    <div class="form-group">
-                        <label for="category-facts">Category Facts to Preserve</label>
-                        <textarea id="category-facts" rows="3" placeholder="Only add essential material, package, fit, ingredient, dimension, or included-item facts"></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label for="category-preference">Creative Preference</label>
-                        <textarea id="category-preference" rows="2" placeholder="Optional mood or presentation preference"></textarea>
-                    </div>
-                </div>
-
-                <div class="section-card">
-                    <h2>Product Images</h2>
-                    <p class="hint">Add useful product angles. All are treated as identity references, up to the model's combined 14-image limit.</p>
-                    <div class="dropzone" id="product-dropzone">
-                        <div class="dropzone-placeholder">
-                            <span class="icon">📁</span>
-                            <p>Drag & drop product images here</p>
-                            <button type="button" class="btn-secondary">
-                                Browse Files
-                            </button>
+        <div class="workspace-grid">
+            <div class="form-column">
+                <section class="section-card operator-section" id="setup-section">
+                    <div class="section-heading">
+                        <span class="section-index">1</span>
+                        <div>
+                            <h2 data-i18n="setup.title">Batch setup</h2>
+                            <p data-i18n="setup.help">Choose the marketplace, output count, and product category.</p>
                         </div>
-                        <input type="file" id="product-file-input" multiple accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" style="display: none;">
                     </div>
-                    <div id="product-preview" class="image-preview-grid"></div>
-                </div>
-
-                <div class="section-card">
-                    <h2>Reference Images</h2>
-                    <div class="dropzone" id="reference-dropzone">
-                        <div class="dropzone-placeholder">
-                            <span class="icon">🖼️</span>
-                            <p>Drag & drop reference images here</p>
-                            <button type="button" class="btn-secondary">
-                                Browse Files
-                            </button>
+                    <div class="grid-3">
+                        <div class="form-group">
+                            <label for="platform-select" data-i18n="setup.marketplace">Marketplace</label>
+                            <select id="platform-select">
+                                <option value="amazon-jp" data-i18n="platform.amazon-jp">Amazon.co.jp</option>
+                                <option value="shopee-tw" data-i18n="platform.shopee-tw">Shopee TW</option>
+                                <option value="rakuten" data-i18n="platform.rakuten">Rakuten</option>
+                            </select>
                         </div>
-                        <input type="file" id="reference-file-input" multiple accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" style="display: none;">
+                        <div class="form-group">
+                            <label for="image-count" data-i18n="setup.images">Images</label>
+                            <select id="image-count">
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                                <option value="4">4</option>
+                                <option value="5">5</option>
+                                <option value="6">6</option>
+                                <option value="7" selected>7</option>
+                                <option value="8">8</option>
+                                <option value="9">9</option>
+                                <option value="10">10</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="category-select" data-i18n="setup.category">Category</label>
+                            <select id="category-select">
+                                <option value="beauty" data-i18n="category.beauty">Beauty &amp; Personal Care</option>
+                                <option value="electronics" data-i18n="category.electronics">Electronics &amp; Appliances</option>
+                                <option value="apparel" data-i18n="category.apparel">Apparel &amp; Accessories</option>
+                                <option value="food" data-i18n="category.food">Food &amp; Beverage</option>
+                                <option value="home" data-i18n="category.home">Home &amp; Living</option>
+                            </select>
+                        </div>
                     </div>
-                    <div id="reference-preview" class="reference-preview-grid"></div>
-                </div>
+                    <p class="setup-note" id="setup-note">Amazon.co.jp / 7 images / 1:1</p>
+                </section>
 
-                <div class="section-card">
-                    <h2>Constraints</h2>
-                    <p class="hint">Enable only what matters. Must Have is exact; Preferred guides the AI; unselected details stay open.</p>
-
-                    <div class="constraint-list" id="constraint-list">
-                        <!-- Constraints will be populated by JS based on platform -->
+                <section class="section-card operator-section" id="product-section">
+                    <div class="section-heading">
+                        <span class="section-index">2</span>
+                        <div>
+                            <h2 data-i18n="product.title">Product</h2>
+                            <p data-i18n="product.help">Name the exact product. Add facts only when the AI must preserve them.</p>
+                        </div>
                     </div>
-                </div>
+                    <div class="form-group">
+                        <div class="label-row">
+                            <label for="product-name"><span data-i18n="product.name">Product name</span> <span class="req" data-i18n="common.required">Required</span></label>
+                            <span class="field-status" id="product-name-status" data-i18n="common.required">Required</span>
+                        </div>
+                        <input id="product-name" type="text" data-i18n-placeholder="product.namePlaceholder" placeholder="e.g. Mild Foaming Facial Cleanser 120g" aria-describedby="product-name-status">
+                    </div>
+                    <div class="form-group">
+                        <label for="product-variant"><span data-i18n="product.variant">Variant</span> <span class="opt" data-i18n="common.optional">Optional</span></label>
+                        <input id="product-variant" type="text" data-i18n-placeholder="product.variantPlaceholder" placeholder="Color, size, flavor, or model">
+                    </div>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label for="category-facts"><span data-i18n="product.facts">Facts to preserve</span> <span class="opt" data-i18n="common.optional">Optional</span></label>
+                            <textarea id="category-facts" rows="3" data-i18n-placeholder="product.factsPlaceholder" placeholder="Material, package, fit, ingredient, dimension, included items..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="category-preference"><span data-i18n="product.preference">Creative preference</span> <span class="opt" data-i18n="common.optional">Optional</span></label>
+                            <textarea id="category-preference" rows="3" data-i18n-placeholder="product.preferencePlaceholder" placeholder="Mood or presentation you prefer..."></textarea>
+                        </div>
+                    </div>
+                </section>
 
-                <div class="section-card">
-                    <h2>Batch Direction</h2>
-                    <textarea id="batch-direction" rows="4" placeholder="Campaign message, seasonal theme, target customer, special requirements..."></textarea>
-                </div>
+                <section class="section-card operator-section" id="media-section">
+                    <div class="section-heading">
+                        <span class="section-index">3</span>
+                        <div>
+                            <h2 data-i18n="media.title">Product and references</h2>
+                            <p data-i18n="media.help">Product photos establish identity. References guide tone without being copied.</p>
+                        </div>
+                        <span class="media-count" id="media-count">0 / 14 images</span>
+                    </div>
+                    <div class="media-grid">
+                        <div class="media-block">
+                            <div class="label-row">
+                                <h3><span data-i18n="media.productImages">Product images</span> <span class="req" data-i18n="common.required">Required</span></h3>
+                                <span class="field-status" id="product-media-status" data-i18n="common.required">Required</span>
+                            </div>
+                            <div class="dropzone" id="product-dropzone">
+                                <div class="dropzone-placeholder">
+                                    <span class="upload-icon" aria-hidden="true">+</span>
+                                    <p data-i18n="media.dropProduct">Drop product views here</p>
+                                    <button type="button" class="btn-secondary btn-sm" data-i18n="media.browse">Browse files</button>
+                                </div>
+                                <input type="file" id="product-file-input" multiple accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" hidden>
+                            </div>
+                            <div id="product-preview" class="image-preview-grid"></div>
+                        </div>
+                        <div class="media-block">
+                            <h3><span data-i18n="media.visualReferences">Visual references</span> <span class="opt" data-i18n="common.optional">Optional</span></h3>
+                            <div class="dropzone dropzone-secondary" id="reference-dropzone">
+                                <div class="dropzone-placeholder">
+                                    <span class="upload-icon" aria-hidden="true">+</span>
+                                    <p data-i18n="media.dropReferences">Style, layout, or color references</p>
+                                    <button type="button" class="btn-secondary btn-sm" data-i18n="media.browse">Browse files</button>
+                                </div>
+                                <input type="file" id="reference-file-input" multiple accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" hidden>
+                            </div>
+                            <div id="reference-preview" class="reference-preview-grid"></div>
+                        </div>
+                    </div>
+                </section>
 
-                <div class="action-buttons">
-                    <button id="preview-prompts-btn" class="btn-secondary">Preview Prompts</button>
-                    <button id="generate-btn" class="btn-primary">Generate Batch</button>
-                    <button id="save-draft-btn" class="btn-secondary">Save Draft</button>
-                    <button id="export-btn" class="btn-secondary" disabled>Export Outputs</button>
-                </div>
-            </section>
+                <details class="section-card rules-panel" id="rules-panel">
+                    <summary>
+                        <span class="section-index">4</span>
+                        <span class="rules-summary-copy">
+                            <strong data-i18n="rules.title">Optional rules and direction</strong>
+                            <small data-i18n="rules.help">Leave this closed when the AI can decide freely.</small>
+                        </span>
+                        <span class="rules-count" id="active-rules-count">No active rules</span>
+                        <span class="disclosure-icon" aria-hidden="true"></span>
+                    </summary>
+                    <div class="rules-body">
+                        <div class="rules-key">
+                            <span><strong class="policy-must" data-i18n="policy.must">Must Have</strong> <span data-i18n="rules.mustExact">exact requirement</span></span>
+                            <span><strong class="policy-preferred" data-i18n="policy.preferred">Preferred</strong> <span data-i18n="rules.preferredFlexible">flexible direction</span></span>
+                        </div>
+                        <div class="constraint-list" id="constraint-list"></div>
+                        <div class="form-group batch-direction-field">
+                            <label for="batch-direction"><span data-i18n="rules.batchDirection">Batch direction</span> <span class="opt" data-i18n="common.optional">Optional</span></label>
+                            <textarea id="batch-direction" rows="3" data-i18n-placeholder="rules.batchPlaceholder" placeholder="Campaign message, seasonal theme, target customer, or special requirements..."></textarea>
+                        </div>
+                    </div>
+                </details>
 
-            <!-- Right Panel: Results & History -->
-            <section class="results-panel">
-                <div class="section-card">
-                    <h2>Results</h2>
+                <section class="section-card results-section" id="results-section">
+                    <div class="card-head">
+                        <div>
+                            <p class="eyebrow" data-i18n="results.eyebrow">Current batch</p>
+                            <h2 data-i18n="results.title">Results</h2>
+                        </div>
+                        <span class="count-badge" id="results-count">0</span>
+                    </div>
+                    <div id="generation-status" class="generation-status" hidden>
+                        <span class="spinner" aria-hidden="true"></span>
+                        <span id="generation-status-text" data-i18n="generation.preparing">Preparing batch...</span>
+                    </div>
                     <div id="results-container" class="results-container">
                         <div class="empty-state">
-                            <span class="icon">✨</span>
-                            <p>Generate a batch to see images and prompt records</p>
+                            <p data-i18n="results.empty">Generated images will appear here as each one completes.</p>
                         </div>
                     </div>
-                </div>
+                </section>
+            </div>
 
-                <div class="section-card">
-                    <h2>History</h2>
-                    <div id="history-container" class="history-container">
-                        <div class="empty-state">
-                            <span class="icon">📚</span>
-                            <p>No saved batches yet</p>
+            <aside class="review-column" data-i18n-aria-label="review.aria" aria-label="Batch review">
+                <section class="section-card review-panel">
+                    <div class="review-heading">
+                        <div>
+                            <p class="eyebrow" data-i18n="review.eyebrow">Review</p>
+                            <h2 data-i18n="review.title">Batch summary</h2>
                         </div>
+                        <span class="readiness-badge" id="readiness-badge">Needs input</span>
                     </div>
-                </div>
-            </section>
-        </main>
-    </div>
+                    <dl class="summary-list">
+                        <div><dt data-i18n="review.marketplace">Marketplace</dt><dd id="summary-platform">Amazon.co.jp</dd></div>
+                        <div><dt data-i18n="review.output">Output</dt><dd id="summary-plan">7 images / 1:1 / PNG 2K</dd></div>
+                        <div><dt data-i18n="review.product">Product</dt><dd id="summary-product">Not entered</dd></div>
+                        <div><dt data-i18n="review.media">Media</dt><dd id="summary-media">0 product / 0 reference</dd></div>
+                    </dl>
+                    <ul class="checklist" id="review-checklist">
+                        <li data-check="name"><span class="check-dot"></span><span data-i18n="review.checkName">Product name</span></li>
+                        <li data-check="photo"><span class="check-dot"></span><span data-i18n="review.checkPhoto">Product photo</span></li>
+                        <li data-check="auth"><span class="check-dot"></span><span data-i18n="review.checkAuth">Server credentials</span></li>
+                    </ul>
+                    <p class="readiness-message" id="readiness-message">Enter a product name to continue.</p>
+                    <div class="primary-actions">
+                        <button id="preview-prompts-btn" class="btn-secondary" data-i18n="actions.preview" disabled>Preview prompts</button>
+                        <button id="generate-btn" class="btn-primary btn-generate" data-i18n="actions.generate" disabled>Generate batch</button>
+                    </div>
+                    <p class="generation-note" id="generation-note">Generates 7 images sequentially. Preview is free.</p>
+                    <div class="secondary-actions">
+                        <button id="save-draft-btn" class="btn-quiet" data-i18n="actions.saveDraft" disabled>Save draft</button>
+                        <button id="export-btn" class="btn-quiet" data-i18n="actions.export" disabled>Export outputs</button>
+                    </div>
+                </section>
+            </aside>
+        </div>
+    </main>
 
-    <dialog id="prompt-preview-dialog" class="prompt-preview-dialog" aria-labelledby="prompt-preview-title">
+    <footer class="footer" data-i18n="footer.disclaimer">Marketplace presets are production guidance, not legal certification.</footer>
+
+    <dialog id="history-dialog" class="panel-dialog" aria-labelledby="history-title">
         <div class="dialog-header">
             <div>
-                <h2 id="prompt-preview-title">Prompt Preview</h2>
-                <p id="prompt-preview-summary" class="hint"></p>
+                <p class="eyebrow" data-i18n="history.eyebrow">Saved locally</p>
+                <h2 id="history-title" data-i18n="history.title">Batch history</h2>
             </div>
-            <button id="close-prompt-preview" class="dialog-close" type="button" aria-label="Close prompt preview" title="Close">&times;</button>
+            <button id="close-history" class="dialog-close" type="button" data-i18n-aria-label="history.close" data-i18n-title="history.close" aria-label="Close history" title="Close">&times;</button>
         </div>
-        <div class="dialog-body">
-            <label for="prompt-preview-select">Image prompt</label>
-            <select id="prompt-preview-select"></select>
-            <dl class="prompt-preview-meta">
-                <div><dt>Model</dt><dd id="prompt-preview-model"></dd></div>
-                <div><dt>Output</dt><dd id="prompt-preview-output"></dd></div>
-                <div><dt>Images sent</dt><dd id="prompt-preview-assets"></dd></div>
-            </dl>
-            <pre id="prompt-preview-content" class="prompt-preview-content"></pre>
-        </div>
-        <div class="dialog-actions">
-            <button id="copy-prompt-preview" class="copy-prompt-btn" type="button" aria-label="Copy prompt" title="Copy prompt">
-                <span class="copy-icon" aria-hidden="true"></span>
-            </button>
-            <button id="done-prompt-preview" class="btn-primary" type="button">Done</button>
+        <div id="history-container" class="history-container dialog-scroll">
+            <div class="empty-state"><p data-i18n="history.empty">No saved batches yet.</p></div>
         </div>
     </dialog>
 
+    <dialog id="prompt-preview-dialog" class="panel-dialog prompt-preview-dialog" aria-labelledby="prompt-preview-title">
+        <div class="dialog-header">
+            <div>
+                <p class="eyebrow" data-i18n="prompt.eyebrow">No API call</p>
+                <h2 id="prompt-preview-title" data-i18n="prompt.title">Prompt preview</h2>
+                <p id="prompt-preview-summary" class="hint"></p>
+            </div>
+            <button id="close-prompt-preview" class="dialog-close" type="button" data-i18n-aria-label="prompt.close" data-i18n-title="prompt.close" aria-label="Close prompt preview" title="Close">&times;</button>
+        </div>
+        <div class="dialog-body">
+            <label for="prompt-preview-select" data-i18n="prompt.imagePlan">Image plan</label>
+            <select id="prompt-preview-select"></select>
+            <dl class="prompt-preview-meta">
+                <div><dt data-i18n="prompt.model">Model</dt><dd id="prompt-preview-model"></dd></div>
+                <div><dt data-i18n="prompt.output">Output</dt><dd id="prompt-preview-output"></dd></div>
+                <div><dt data-i18n="prompt.imagesSent">Images sent</dt><dd id="prompt-preview-assets"></dd></div>
+            </dl>
+            <details class="raw-prompt" open>
+                <summary data-i18n="prompt.exact">Exact prompt</summary>
+                <pre id="prompt-preview-content" class="prompt-preview-content"></pre>
+            </details>
+        </div>
+        <div class="dialog-actions">
+            <button id="copy-prompt-preview" class="copy-prompt-btn" type="button" data-i18n="prompt.copy">Copy prompt</button>
+            <button id="done-prompt-preview" class="btn-primary" type="button" data-i18n="prompt.done">Done</button>
+        </div>
+    </dialog>
+
+    <script src="i18n.js"></script>
     <script src="app.js"></script>
+    <script>
+    (function () {
+        function t(key, variables) {
+            return window.BubstalI18n ? window.BubstalI18n.t(key, variables) : key;
+        }
+
+        function setText(id, value) {
+            var el = document.getElementById(id);
+            if (el && el.textContent !== value) el.textContent = value;
+        }
+
+        function updateWorkbench() {
+            var platform = document.getElementById('platform-select');
+            var count = document.getElementById('image-count');
+            var name = document.getElementById('product-name');
+            var productCount = document.querySelectorAll('#product-preview .image-preview-item').length;
+            var referenceCount = document.querySelectorAll('#reference-preview .reference-preview-item').length;
+            var resultCount = document.querySelectorAll('#results-container .result-item').length;
+            var activeRules = document.querySelectorAll('#constraint-list .constraint-item:not(.disabled)').length;
+            var authStatus = document.getElementById('auth-status');
+            var hasName = !!(name && name.value.trim());
+            var hasPhoto = productCount > 0;
+            var authReady = !!(authStatus && authStatus.dataset.ready === 'true');
+            var previewReady = hasName && hasPhoto;
+            var generationReady = previewReady && authReady;
+            var platformName = platform ? t('platform.' + platform.value) : '';
+            var imageCount = count ? count.value : '0';
+
+            setText('summary-platform', platformName);
+            setText('summary-plan', t('review.outputPlan', { count: imageCount }));
+            setText('summary-product', hasName ? name.value.trim() : t('review.notEntered'));
+            setText('summary-media', t('review.productCount', { product: productCount, reference: referenceCount }));
+            setText('media-count', t('media.count', { count: productCount + referenceCount }));
+            setText('setup-note', t('setup.note', { platform: platformName, count: imageCount }));
+            setText('results-count', String(resultCount));
+            setText('active-rules-count', activeRules ? t('rules.active', { count: activeRules }) : t('rules.none'));
+            setText('generation-note', t('generation.note', { count: imageCount }));
+
+            var map = { name: hasName, photo: hasPhoto, auth: authReady };
+            document.querySelectorAll('#review-checklist li').forEach(function (li) {
+                li.classList.toggle('done', !!map[li.getAttribute('data-check')]);
+            });
+
+            var nameStatus = document.getElementById('product-name-status');
+            if (nameStatus) {
+                nameStatus.textContent = hasName ? t('common.ready') : t('common.required');
+                nameStatus.classList.toggle('ready', hasName);
+            }
+            var mediaStatus = document.getElementById('product-media-status');
+            if (mediaStatus) {
+                mediaStatus.textContent = hasPhoto ? t('media.added', { count: productCount }) : t('common.required');
+                mediaStatus.classList.toggle('ready', hasPhoto);
+            }
+
+            var previewButton = document.getElementById('preview-prompts-btn');
+            var generateButton = document.getElementById('generate-btn');
+            var saveDraftButton = document.getElementById('save-draft-btn');
+            if (previewButton) previewButton.disabled = !previewReady;
+            if (generateButton && generateButton.dataset.busy !== 'true') generateButton.disabled = !generationReady;
+            if (saveDraftButton) saveDraftButton.disabled = !hasPhoto;
+            document.body.classList.toggle('preview-ready', previewReady);
+
+            var badge = document.getElementById('readiness-badge');
+            if (badge) {
+                badge.textContent = generationReady ? t('review.ready') : t('review.needsInput');
+                badge.classList.toggle('ready', generationReady);
+            }
+            if (!hasName) setText('readiness-message', t('review.enterName'));
+            else if (!hasPhoto) setText('readiness-message', t('review.addPhoto'));
+            else if (!authReady) setText('readiness-message', t('review.authRequired'));
+            else setText('readiness-message', t('review.readyMessage'));
+
+            var authDot = document.getElementById('auth-dot');
+            if (authDot) {
+                authDot.classList.toggle('ready', authReady);
+                authDot.classList.toggle('error', !!(authStatus && authStatus.dataset.ready === 'false'));
+            }
+        }
+
+        window.updateWorkbench = updateWorkbench;
+        document.addEventListener('input', updateWorkbench);
+        document.addEventListener('change', updateWorkbench);
+        document.addEventListener('bubstal:localechange', updateWorkbench);
+
+        var observer = new MutationObserver(updateWorkbench);
+        ['auth-status', 'product-preview', 'reference-preview', 'constraint-list', 'results-container'].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) observer.observe(el, { childList: true, subtree: true, characterData: true });
+        });
+
+        var historyDialog = document.getElementById('history-dialog');
+        document.getElementById('history-btn').addEventListener('click', function () { historyDialog.showModal(); });
+        document.getElementById('close-history').addEventListener('click', function () { historyDialog.close(); });
+        updateWorkbench();
+    })();
+    </script>
 </body>
 </html>
