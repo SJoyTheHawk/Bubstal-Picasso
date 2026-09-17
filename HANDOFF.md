@@ -1,175 +1,106 @@
-# Product Image Prompt System: Handoff
+# Bubstal Picaso: Product Handoff
 
 ## Objective
 
-Build a lightweight system that reduces the time and manual work required to create repetitive eCommerce product images.
+Bubstal Picaso uses AI-generated product photography to reduce the time and cost of repetitive eCommerce image production normally handled by human designers.
 
-For the first trial, the system should take a small set of product inputs and produce a coordinated set of prompts for 10 product images. The prompts will be used with a separate image-generation AI.
+The goal is not to pursue the best possible image at any cost. The goal is to balance generation cost, production speed, and usable commercial quality. A successful batch should preserve the product and required business information while needing substantially less briefing, manual design work, and correction.
 
-The system should support different content preferences for different eCommerce platforms while allowing the business to enforce required information and reuse successful styles from earlier batches.
+## Product Principle
 
-## Core Principle
+Operators should enter what is essential and only a small amount of preferred direction. They should not need to complete a large product database or direct every visual decision.
 
-The system should separate:
-
-- Information that must be followed exactly
-- Direction that should normally be followed
-- Creative decisions the AI is free to make
-
-It should not require users to complete a large or highly detailed product database before generating a batch.
-
-## MVP Inputs
-
-### 1. Product Content
-
-Reusable information and assets associated with the product:
-
-- Product images
-- Product name and short description
-- Key selling points
-- Exact text that must appear
-- Safety or legal text
-- Distributor-required information
-- Logos and packaging assets
-- Product facts and claims the AI must not change or invent
-
-### 2. Platform Template
-
-A reusable recipe describing the needs of each sales platform:
-
-- Number and purpose of images
-- Information expected in each image
-- Preferred text density
-- Preferred composition
-- Image dimensions or aspect ratio
-- Platform-specific restrictions
-
-For example, one platform may favor clean, minimal product images, while another may favor promotional copy and denser feature information.
-
-### 3. Batch Direction
-
-Instructions that apply only to the current batch:
-
-- Campaign or promotional message
-- Language
-- Target customer
-- Seasonal theme
-- Features to emphasize
-- Special requirements
-- Previous batch or design to follow
-
-This should primarily be a short free-text input so the workflow remains fast.
-
-### 4. Style Reference
-
-Users should be able to upload or select a previous image batch and specify how it should influence the new batch:
-
-- Follow it closely
-- Use it only as inspiration
-- Keep the layout but change the colors
-- Keep the colors and typography but change the scenes
-- Create a new direction
-
-An approved batch should be saveable as a reusable style profile so users do not need to upload and explain it again for future products.
-
-## Constraint Model
-
-Every relevant input or instruction can use one of three levels:
+The system separates input into three levels:
 
 | Level | Meaning |
 | --- | --- |
-| Locked | Must appear or be followed exactly as supplied |
-| Preferred | Should be followed unless there is a good visual reason not to |
-| Free | The AI may decide |
+| Must Have | Exact product facts, copy, legal requirements, or platform requirements that cannot change |
+| Preferred | Brand or campaign direction the AI should normally follow |
+| Open | Decisions the AI is free to make |
 
-Examples:
+Anything the operator does not enable is Open. Composition, camera angle, lighting, props, and scene design should remain open unless there is a business reason to constrain them. This creative freedom is intentional: it allows the AI to produce dynamic and varied designs rather than mechanically repeat one template.
 
-| Item | Constraint |
-| --- | --- |
-| Product appearance | Locked |
-| Distributor text | Locked |
-| Promotional price | Locked |
-| Brand colors | Preferred |
-| Previous batch layout | Preferred |
-| Background props | Free |
+Product identity is always a Must Have. The generated product must retain the geometry, proportions, colors, materials, packaging, visible labels, logos, quantity, and included components shown in the supplied product images.
 
-This model provides control where the business needs it without making every creative choice a separate setting.
+## Cost And Quality Boundary
 
-## Proposed User Flow
+- Generate one image per requested slot with Nano Banana Pro.
+- Do not automatically create variants, retry acceptable outputs, score images, or run refinement loops.
+- Optimize for a useful first batch and lower operator correction effort, not artistic perfection.
+- Treat marketplace and category presets as practical guidance, not legal certification.
+- Leave nonessential decisions open instead of adding controls for every visual property.
 
-1. Upload product images.
-2. Enter the product name and selling points.
-3. Enter required text, claims, and safety information.
-4. Select a platform template.
-5. Upload or select a previous style reference.
-6. Add requirements for the current batch.
-7. Mark important items as Locked, Preferred, or Free.
-8. Generate the 10-image prompt set.
+## Inputs
 
-## Expected Output
+### Required
 
-The system should produce one production package containing:
+- Target marketplace
+- Product category
+- Product name
+- At least one product image
 
-- Batch-wide style direction
-- Shared product-preservation instructions
-- A role and purpose for each of the 10 images
-- An image-generation prompt for each image
-- Required text for each image
-- Layout and text-placement guidance
-- Things the image generator must avoid
+### Optional
 
-Example output structure:
+- Product variant
+- Essential category facts
+- A small category-specific creative preference
+- Marketplace constraints marked Must Have or Preferred
+- A short batch direction
+- Style, layout, or color reference images
 
-```text
-Batch-wide style instructions
-Shared product-preservation instructions
+The five initial category presets are Beauty & Personal Care, Electronics & Appliances, Apparel & Accessories, Food & Beverage, and Home & Living. Their preservation guidance is applied behind the interface instead of becoming a long required form.
 
-Image 1
-- Purpose
-- Image-generation prompt
-- Required text
-- Layout instruction
-- Things to avoid
+## Batch Design
 
-...
+Each marketplace defines a sequence of useful image roles such as hero, benefit, feature detail, material detail, scale, usage, alternate view, and package contents.
 
-Image 10
-- Purpose
-- Image-generation prompt
-- Required text
-- Layout instruction
-- Things to avoid
-```
+Images in a batch should share a recognizable design tone through qualities such as brand character, palette, mood, and visual finish. They should not reuse the same layout or scene. The rule for references is:
 
-## Required-Text Handling
+**Same design tone, not the same design.**
 
-Image-generation models are unreliable at rendering exact text. Prices, warnings, distributor copy, specifications, and other mandatory wording should therefore be added as conventional text layers after the base image is generated.
+The AI should choose an original composition for every slot unless an operator explicitly makes a layout requirement a Must Have.
 
-The prompt-generating AI should decide what text belongs in each image and reserve appropriate space for it. The production system should render the final text separately to preserve spelling, accuracy, and consistency.
+Unsupported prices, ratings, comparisons, discounts, measurements, certifications, ingredients, accessories, and performance claims must never be invented. Evidence-dependent content is used only when supplied by the operator.
 
-## MVP Boundary
+## Prompt And Image Flow
 
-The first version should focus on:
+Operators can preview every compiled prompt and its request settings before generation. Previewing has no API or persistence side effects. Generate Batch remains the explicit action that commits the batch to Nano Banana Pro.
 
-- Generating one coordinated batch of 10 prompts
-- Reusing product information across the batch
-- Applying a selected platform template
-- Following a previous visual style when requested
-- Enforcing required content and allowing creative freedom elsewhere
-- Producing clear guidance for later text placement
+After that action, the application performs two internal steps:
 
-The first version does not need a comprehensive product-information-management system, fine-grained numerical controls for every visual property, or automatic final-image generation and publishing.
+1. Compile a structured prompt record for every image slot and save the batch.
+2. Send each prompt and its eligible product/reference images to Nano Banana Pro sequentially, saving every success or failure immediately.
+
+This separation lets the team inspect exactly what prompt produced each output and prepares stable prompt/output pairs for a future human-review survey. It does not store hidden model reasoning.
+
+Each prompt record contains the final prompt, purpose, platform, category, active constraints, selected asset names, reference relationships, aspect ratio, copy plan, and prompt-format version.
+
+Each output record contains the prompt ID, success or failure, model and output settings, timestamps, generated image when successful, and basic API or error metadata.
+
+## Text Handling
+
+Use a lightweight hybrid policy:
+
+- Nano Banana may render a short promotional headline supplied by the operator.
+- Prices, numeric claims, specifications, warnings, legal copy, certifications, and other accuracy-critical text are recorded for later overlay.
+- The image prompt reserves an uncluttered area when later text is required.
+- The MVP does not perform final text compositing or define detailed typography specifications.
+
+## Persistence And Export
+
+The complete working batch remains in the existing browser IndexedDB record, including uploaded source and reference images. Prompt records are saved before rendering, and output records are saved after every request so partial work survives a later failure.
+
+Operators can export a JSON review package containing prompts, copy plans, generated images, statuses, model settings, and timestamps. Uploaded source and reference image binaries are intentionally omitted from the export.
 
 ## Success Criteria
 
-The trial is successful if a user can provide the core product materials once and quickly receive 10 usable, consistent prompts that:
+The trial succeeds when an operator can provide core product material once and receive a coordinated batch that:
 
-- Fit the selected platform's content preferences
-- Preserve required product facts and business information
-- Reflect the requested campaign and reference style
-- Require substantially less manual briefing and repetition
-- Reduce corrections caused by missing text, inconsistent style, or unwanted creative changes
+- Preserves Must Have product and business facts.
+- Reflects Preferred direction without turning it into a rigid rule.
+- Fits the selected marketplace and category.
+- Uses one tone while still producing different designs.
+- Does not invent unsupported commercial claims.
+- Reduces briefing time, designer production time, and correction effort.
 
-## Product Summary
-
-**Product assets + platform template + previous style + current requirements -> 10 production-ready image prompts and text-layout instructions.**
+Visual perfection is not the acceptance standard. Commercial usefulness at a practical time and generation cost is.

@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bubstal Picaso - Product Image Prompt Generator</title>
+    <title>Bubstal Picaso - eCommerce Image Generator</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🎨 Bubstal Picaso</h1>
-            <p>AI-Powered Product Image Prompt Generator</p>
+            <h1>Bubstal Picaso</h1>
+            <p>AI product image production for eCommerce teams</p>
         </header>
 
         <main class="layout">
@@ -40,16 +40,53 @@
                         <label for="image-count">Number of Images</label>
                         <select id="image-count">
                             <option value="1">1</option>
+                            <option value="2">2</option>
                             <option value="3">3</option>
+                            <option value="4">4</option>
                             <option value="5">5</option>
+                            <option value="6">6</option>
                             <option value="7" selected>7</option>
+                            <option value="8">8</option>
+                            <option value="9">9</option>
                             <option value="10">10</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="category-select">Product Category</label>
+                        <select id="category-select">
+                            <option value="beauty">Beauty &amp; Personal Care</option>
+                            <option value="electronics">Electronics &amp; Appliances</option>
+                            <option value="apparel">Apparel &amp; Accessories</option>
+                            <option value="food">Food &amp; Beverage</option>
+                            <option value="home">Home &amp; Living</option>
                         </select>
                     </div>
                 </div>
 
                 <div class="section-card">
+                    <h2>Product Details</h2>
+                    <div class="form-group">
+                        <label for="product-name">Product Name</label>
+                        <input id="product-name" type="text" placeholder="Required">
+                    </div>
+                    <div class="form-group">
+                        <label for="product-variant">Variant</label>
+                        <input id="product-variant" type="text" placeholder="Color, size, flavor, or model (optional)">
+                    </div>
+                    <div class="form-group">
+                        <label for="category-facts">Category Facts to Preserve</label>
+                        <textarea id="category-facts" rows="3" placeholder="Only add essential material, package, fit, ingredient, dimension, or included-item facts"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="category-preference">Creative Preference</label>
+                        <textarea id="category-preference" rows="2" placeholder="Optional mood or presentation preference"></textarea>
+                    </div>
+                </div>
+
+                <div class="section-card">
                     <h2>Product Images</h2>
+                    <p class="hint">Add useful product angles. All are treated as identity references, up to the model's combined 14-image limit.</p>
                     <div class="dropzone" id="product-dropzone">
                         <div class="dropzone-placeholder">
                             <span class="icon">📁</span>
@@ -80,7 +117,7 @@
 
                 <div class="section-card">
                     <h2>Constraints</h2>
-                    <p class="hint">Check to enable, then choose locked (must follow) or preferred (should follow)</p>
+                    <p class="hint">Enable only what matters. Must Have is exact; Preferred guides the AI; unselected details stay open.</p>
 
                     <div class="constraint-list" id="constraint-list">
                         <!-- Constraints will be populated by JS based on platform -->
@@ -93,8 +130,10 @@
                 </div>
 
                 <div class="action-buttons">
-                    <button id="generate-btn" class="btn-primary">🚀 Generate Prompts</button>
-                    <button id="save-draft-btn" class="btn-secondary">💾 Save Draft</button>
+                    <button id="preview-prompts-btn" class="btn-secondary">Preview Prompts</button>
+                    <button id="generate-btn" class="btn-primary">Generate Batch</button>
+                    <button id="save-draft-btn" class="btn-secondary">Save Draft</button>
+                    <button id="export-btn" class="btn-secondary" disabled>Export Outputs</button>
                 </div>
             </section>
 
@@ -105,7 +144,7 @@
                     <div id="results-container" class="results-container">
                         <div class="empty-state">
                             <span class="icon">✨</span>
-                            <p>Generate prompts to see results here</p>
+                            <p>Generate a batch to see images and prompt records</p>
                         </div>
                     </div>
                 </div>
@@ -122,6 +161,32 @@
             </section>
         </main>
     </div>
+
+    <dialog id="prompt-preview-dialog" class="prompt-preview-dialog" aria-labelledby="prompt-preview-title">
+        <div class="dialog-header">
+            <div>
+                <h2 id="prompt-preview-title">Prompt Preview</h2>
+                <p id="prompt-preview-summary" class="hint"></p>
+            </div>
+            <button id="close-prompt-preview" class="dialog-close" type="button" aria-label="Close prompt preview" title="Close">&times;</button>
+        </div>
+        <div class="dialog-body">
+            <label for="prompt-preview-select">Image prompt</label>
+            <select id="prompt-preview-select"></select>
+            <dl class="prompt-preview-meta">
+                <div><dt>Model</dt><dd id="prompt-preview-model"></dd></div>
+                <div><dt>Output</dt><dd id="prompt-preview-output"></dd></div>
+                <div><dt>Images sent</dt><dd id="prompt-preview-assets"></dd></div>
+            </dl>
+            <pre id="prompt-preview-content" class="prompt-preview-content"></pre>
+        </div>
+        <div class="dialog-actions">
+            <button id="copy-prompt-preview" class="copy-prompt-btn" type="button" aria-label="Copy prompt" title="Copy prompt">
+                <span class="copy-icon" aria-hidden="true"></span>
+            </button>
+            <button id="done-prompt-preview" class="btn-primary" type="button">Done</button>
+        </div>
+    </dialog>
 
     <script src="app.js"></script>
 </body>

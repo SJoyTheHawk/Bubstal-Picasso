@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node auth-service.js",
     "start:local": "GOOGLE_APPLICATION_CREDENTIALS=./auth/service_auth.json node auth-service.js",
-    "dev": "nodemon auth-service.js"
+    "dev": "nodemon auth-service.js",
+    "test": "node --test"
   },
   "dependencies": {
     "express": "^4.18.2",

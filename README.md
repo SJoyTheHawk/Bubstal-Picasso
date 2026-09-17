@@ -1,29 +1,26 @@
-# Bubstal Picaso - Product Image Prompt Generator
+# Bubstal Picaso
 
-AI-powered tool for generating structured prompts for product promotional images targeting e-commerce platforms.
+Bubstal Picaso is a lightweight eCommerce product image generator. It compiles operator inputs into inspectable prompt records, then uses Nano Banana Pro to render a coordinated image batch.
+
+The product is designed to reduce repetitive designer time and production cost. Operators identify what Must be preserved, add a small amount of Preferred direction, and leave all other creative decisions open to the model.
 
 ## Features
 
-### ✅ Implemented
+- Amazon.co.jp, Shopee TW, and Rakuten marketplace presets
+- Beauty, electronics, apparel, food, and home category guardrails
+- Must Have and Preferred constraints; unselected details stay open
+- Multiple product identity images plus style, layout, and color references
+- Same-tone, different-design direction across a batch
+- Nano Banana Pro generation at PNG/2K with platform aspect ratios
+- Prompt records saved before rendering and output records saved after every request
+- Partial batch recovery when an individual generation fails
+- IndexedDB drafts and history
+- Output-only JSON export for future human review
+- Hybrid text handling for model-rendered headlines and later accuracy-critical overlays
 
-- **Platform Templates**: Amazon.co.jp, Shopee TW, Rakuten with platform-specific prompt modifiers
-- **Drag & Drop Image Upload**: Product images and reference images with intuitive UI
-- **Multi-Role Reference Images**: Each reference image can serve as style, layout, and/or color reference simultaneously
-- **Constraint System**: 
-  - Enable/disable individual constraint fields
-  - Toggle between "Locked" (must follow) and "Preferred" (should follow)
-  - Visual color coding (red = locked, yellow = preferred, gray = disabled)
-- **Scalable Image Count**: Dropdown to generate 1-10 images per batch
-- **Prompt Cascading**: Structured prompt building following VLM-inspired architecture
-- **Persistent Storage**: IndexedDB for saving batches with full input state and results
-- **History Panel**: Browse and restore previous batches
-- **Responsive Design**: Clean, modern UI that works on desktop and tablet
+## Setup
 
-### 🔌 Setup Required
-
-**1. Start the Application Server**
-
-The server uses [Google Application Default Credentials (ADC)](https://docs.cloud.google.com/docs/authentication/application-default-credentials). The browser never reads credential JSON or receives Google access tokens; authenticated Google API requests are made by the server.
+The server uses [Google Application Default Credentials (ADC)](https://docs.cloud.google.com/docs/authentication/application-default-credentials). Credentials and access tokens remain on the server.
 
 Install dependencies:
 
@@ -31,115 +28,69 @@ Install dependencies:
 npm install
 ```
 
-For local development, choose one ADC setup:
+Configure one ADC source for local development:
 
 ```bash
-# User ADC for the Gemini API (requires a Desktop OAuth client JSON)
+# User ADC for the Gemini API
 gcloud auth application-default login \
   --client-id-file=client_secret.json \
   --scopes='https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/generative-language.retriever'
 
-# Or point ADC at the supplied service-account key
+# Or use the supplied local service-account key
 export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/auth/service_auth.json"
 ```
 
-Then start the application server:
+Enable the Google Generative Language API and billing for the credential's project, then start the server:
 
 ```bash
 npm start
 
-# Convenience command for the supplied auth/service_auth.json key
+# Uses auth/service_auth.json directly
 npm run start:local
 
-# Or for development with auto-reload
+# Auto-reload for development
 npm run dev
 ```
 
-Open `http://localhost:3000` in your browser. Do not open `index.html` directly as a `file://` URL because browser security rules block the authentication request.
+Open `http://localhost:3000`. The application must be served by the Node server; opening `index.html` as a `file://` URL will not provide the authentication API.
 
-The server uses port 3000 by default. You can change it with:
-```bash
-PORT=8080 npm start
-```
+The default port is 3000. Override it with `PORT=8080 npm start`.
 
-The authentication library searches in ADC order: `GOOGLE_APPLICATION_CREDENTIALS`, the local file created by `gcloud auth application-default login`, then an attached service account from the Google Cloud metadata server. The server requests both the `cloud-platform` and `generative-language.retriever` OAuth scopes required by the Gemini OAuth flow.
+For production, attach a user-managed service account with only the required IAM roles. Do not deploy a service-account JSON key.
 
-The Google Generative Language API must also be enabled for the credential's project, with billing and Gemini API access configured for that project.
+## Workflow
 
-**2. Production Authentication**
+1. Select the marketplace, image count, and product category.
+2. Enter the product name and any essential product facts.
+3. Upload one or more product views.
+4. Optionally upload references and mark their style, layout, or color roles.
+5. Enable only the constraints that matter and mark each one Must Have or Preferred.
+6. Add a short batch direction when needed.
+7. Select Preview Prompts to inspect every exact prompt and request setting without calling the API.
+8. Close the preview and select Generate Batch as the explicit generation action.
+9. Inspect the generated images, prompt records, and text reserved for later overlay.
+10. Export the output JSON when a batch is ready for review.
 
-On Google Cloud, attach a user-managed service account with only the IAM roles the application needs. Do not deploy `auth/service_auth.json`; ADC automatically uses the attached service account when no earlier credential source is configured.
+The Generate action first saves all compiled prompts, then renders images sequentially. Each result is saved immediately, so completed images remain available if a later request fails.
 
-Service-account key files are long-lived credentials and are ignored by this project. If a key has been committed, published, or served by an earlier version of this application, disable or delete that key in IAM and create a replacement only if local key-based authentication is still required.
+## Text Policy
 
-## Platform Templates
+Short operator-supplied promotional headlines may be rendered directly by Nano Banana. Accuracy-critical content such as prices, numeric claims, specifications, warnings, legal copy, and certifications is not typeset by the model. The generated scene reserves space for that text to be added by a later production step.
 
-### Amazon.co.jp
-- **Style**: Clean, minimal, white background
-- **Image Count**: 7 (default)
-- **Focus**: Product clarity, trustworthy presentation
-- **Constraints**: Product name, color, features, safety text, brand logo
+## Storage And Export
 
-### Shopee TW
-- **Style**: Bold, promotional, vibrant backgrounds
-- **Image Count**: 9 (default)  
-- **Focus**: Attention-grabbing, feature callouts, pricing emphasis
-- **Constraints**: Product name (Chinese/English), promotional price, selling points, campaign message, brand colors
+IndexedDB stores the complete local batch, including uploaded product and reference images. JSON export contains prompt records, copy plans, generated output images, statuses, and render settings. It does not contain uploaded source or reference image binaries.
 
-### Rakuten
-- **Style**: Detailed, informative, trust-focused
-- **Image Count**: 7 (default)
-- **Focus**: Quality emphasis, specifications, comparison-friendly
-- **Constraints**: Product name (Japanese), specifications, quality claims, size info, trust markers
+The prompt and output IDs are intended to support a later human-review survey. Automatic prompt or image scoring is not part of this version.
 
-## Usage
+## Technical Notes
 
-1. **Select Platform**: Choose your target marketplace
-2. **Set Image Count**: Pick how many images to generate (1-10)
-3. **Upload Product Images**: Drag & drop or browse product photos
-4. **Upload Reference Images** (optional): Add style/layout/color references
-   - Check roles for each reference (can be multiple)
-5. **Configure Constraints**:
-   - Check boxes to enable fields
-   - Toggle Locked 🔒 for must-have elements
-   - Toggle Preferred ⭐ for should-have elements
-   - Leave unchecked for creative freedom
-6. **Add Batch Direction** (optional): Campaign message, seasonal theme, target audience
-7. **Generate**: Creates prompts for all images
-8. **Save Draft**: Preserves work-in-progress for later
+- Frontend: vanilla HTML, CSS, and JavaScript
+- Server: Express proxy using Google ADC
+- Model: `gemini-3-pro-image`
+- Output: one PNG image per slot at 2K
+- Input image limit: at most 14 combined product and visual-reference images are sent per request; product images take priority
+- Rendering: sequential, with no automatic retries or variants
+- Storage: one versioned IndexedDB batch record containing inputs, prompts, outputs, and legacy-compatible results
 
-## File Structure
-
-```
-Bubstal Picaso/
-├── index.html          # Main UI structure
-├── styles.css          # Modern, responsive styling
-├── app.js              # Application logic, templates, IndexedDB
-├── HANDOFF.md          # Original requirements document
-└── README.md           # This file
-```
-
-## Technical Details
-
-- **Frontend**: Pure HTML/CSS/JavaScript (vanilla)
-- **Authentication**: Server-side Google Application Default Credentials
-- **Storage**: IndexedDB for offline-capable persistence
-- **Image Handling**: Base64 encoding for storage and preview
-- **Browser Support**: Modern browsers (Chrome, Firefox, Safari, Edge)
-
-## Future Enhancements
-
-- Real nano banana 2 API integration
-- Batch export (prompts + images as ZIP)
-- Template customization UI
-- Prompt template editor
-- Multi-language support for constraint labels
-- Cloud sync option
-- Comparison view for A/B testing prompts
-
-## Notes
-
-- Currently uses mock API calls - generated images show product images as placeholders
-- Reference images are stored as base64 in IndexedDB (suitable for reasonable quantities)
-- Platform templates can be extended in `app.js` PLATFORM_TEMPLATES object
-- Constraint fields per platform are fully customizable in template definitions
+Marketplace and category presets are practical generation guidance. Sellers remain responsible for current marketplace, advertising, and legal compliance.
