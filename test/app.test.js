@@ -672,3 +672,165 @@ test('copy control copies the currently displayed prompt', async () => {
     assert.equal(button.title, 'Copied');
     assert.equal(button['aria-label'], 'Prompt copied');
 });
+
+test('validateShaperPlan accepts valid buyerMotivation structure', () => {
+    const { api } = loadApp();
+    const state = baseState('amazon-jp', 'beauty');
+    state.imageCount = 2;
+    api.setState(state);
+    const plan = api.validateShaperPlan({
+        resolvedImageCount: 2,
+        batchTone: { character: 'Clean', palette: 'Neutral', mood: 'Trustworthy', finish: 'Polished' },
+        productRead: {
+            verificationNeed: 'medium',
+            purchaseType: 'repeat',
+            infoLocation: 'packaging',
+            anglesSupplied: 1,
+            notes: 'Beauty product',
+            buyerMotivation: {
+                primary: 'B3_Lifestyle',
+                secondary: ['B4_Aesthetic'],
+                confidence: 0.78,
+                reason: 'Personal care category with design-forward packaging'
+            }
+        },
+        slots: [
+            { index: 1, role: 'hero', direction: 'A', differentiator: 'Main view', sceneRationale: 'Clear', sceneSource: 'shaper', copyPlacement: 'none', derivedFrom: 'open' },
+            { index: 2, role: 'lifestyle', direction: 'B', differentiator: 'Usage context', sceneRationale: 'Lifestyle fit', sceneSource: 'shaper', copyPlacement: 'none', derivedFrom: 'open' }
+        ]
+    }, api.PLATFORM_TEMPLATES['amazon-jp']);
+
+    assert.equal(plan.productRead.buyerMotivation.primary, 'B3_Lifestyle');
+    assert.deepEqual(plan.productRead.buyerMotivation.secondary, ['B4_Aesthetic']);
+    assert.equal(plan.productRead.buyerMotivation.confidence, 0.78);
+    assert.equal(plan.productRead.buyerMotivation.reason, 'Personal care category with design-forward packaging');
+});
+
+test('fallback plan includes buyerMotivation with low confidence', () => {
+    const { api } = loadApp();
+    const state = baseState('rakuten', 'electronics');
+    api.setState(state);
+    const plan = api.buildFallbackPlan(api.PLATFORM_TEMPLATES.rakuten);
+
+    assert.equal(plan.productRead.buyerMotivation.primary, 'B1_Functional');
+    assert.equal(plan.productRead.buyerMotivation.secondary.length, 0);
+    assert.equal(plan.productRead.buyerMotivation.confidence, 0.5);
+    assert.equal(plan.productRead.buyerMotivation.reason, 'Fallback to platform template.');
+});
+
+test('validateShaperPlan coerces invalid buyerMotivation to fallback', () => {
+    const { api } = loadApp();
+    const state = baseState('shopee-tw', 'food');
+    state.imageCount = 1;
+    api.setState(state);
+    const plan = api.validateShaperPlan({
+        resolvedImageCount: 1,
+        batchTone: { character: 'Vibrant', palette: 'Colorful', mood: 'Appetizing', finish: 'Glossy' },
+        productRead: {
+            verificationNeed: 'low',
+            purchaseType: 'repeat',
+            infoLocation: 'both',
+            anglesSupplied: 1,
+            notes: 'Food product',
+            buyerMotivation: {
+                primary: 'INVALID_CODE',
+                confidence: 'not a number'
+            }
+        },
+        slots: [{ index: 1, role: 'hero', direction: 'A', differentiator: 'Main', sceneRationale: 'Clear', sceneSource: 'shaper', copyPlacement: 'none', derivedFrom: 'open' }]
+    }, api.PLATFORM_TEMPLATES['shopee-tw']);
+
+    assert.equal(plan.productRead.buyerMotivation.primary, 'B1_Functional');
+    assert.equal(plan.productRead.buyerMotivation.confidence, 0.5);
+});
+
+test('Shaper payload includes buyer motivation framework instruction', () => {
+    const { api } = loadApp();
+    const state = baseState('amazon-jp', 'electronics');
+    api.setState(state);
+    const payload = api.buildShaperPayload(api.PLATFORM_TEMPLATES['amazon-jp']);
+    const promptText = payload.contents[0].parts[0].text;
+
+    assert.match(promptText, /BUYER MOTIVATION FRAMEWORK/);
+    assert.match(promptText, /B1_Functional/);
+    assert.match(promptText, /B2_Evidence/);
+    assert.match(promptText, /B3_Lifestyle/);
+    assert.match(promptText, /B4_Aesthetic/);
+    assert.match(promptText, /B5_Value/);
+    assert.match(promptText, /B6_Convenience/);
+    assert.match(promptText, /B7_Expert/);
+    assert.match(promptText, /confidence 0\.0-1\.0/);
+});
+
+test('Shaper response schema requires buyerMotivation in productRead', () => {
+    const { api } = loadApp();
+    const state = baseState('rakuten', 'home');
+    api.setState(state);
+    const payload = api.buildShaperPayload(api.PLATFORM_TEMPLATES.rakuten);
+    const schema = payload.generationConfig.responseSchema;
+
+    assert.equal(schema.properties.productRead.required.includes('buyerMotivation'), true);
+    assert.equal(schema.properties.productRead.properties.buyerMotivation.type, 'OBJECT');
+    assert.equal(schema.properties.productRead.properties.buyerMotivation.required.length, 2);
+    assert.equal(schema.properties.productRead.properties.buyerMotivation.required.includes('primary'), true);
+    assert.equal(schema.properties.productRead.properties.buyerMotivation.required.includes('confidence'), true);
+    assert.equal(schema.properties.productRead.properties.buyerMotivation.properties.primary.type, 'STRING');
+    assert.equal(schema.properties.productRead.properties.buyerMotivation.properties.confidence.type, 'NUMBER');
+});
+
+test('prompt preview displays buyer motivation when present', async () => {
+    const elements = {
+        'prompt-preview-dialog': { showModal() {} },
+        'prompt-preview-select': { innerHTML: '', value: '', appendChild() {} },
+        'prompt-preview-summary': { textContent: '' },
+        'prompt-preview-plan': { textContent: '' },
+        'prompt-preview-content': { textContent: '' },
+        'prompt-preview-model': { textContent: '' },
+        'prompt-preview-output': { textContent: '' },
+        'prompt-preview-assets': { textContent: '' }
+    };
+    const { api } = loadApp({
+        alert() {},
+        async fetch() {
+            return {
+                ok: true,
+                async json() {
+                    return { candidates: [{ content: { parts: [{ text: JSON.stringify({
+                        resolvedImageCount: 2,
+                        batchTone: { character: 'Technical', palette: 'Gray', mood: 'Precise', finish: 'Sharp' },
+                        productRead: {
+                            verificationNeed: 'high',
+                            purchaseType: 'one-off',
+                            infoLocation: 'listing',
+                            anglesSupplied: 1,
+                            notes: 'Technical product',
+                            buyerMotivation: {
+                                primary: 'B7_Expert',
+                                secondary: ['B2_Evidence'],
+                                confidence: 0.85,
+                                reason: 'Technical category with visible specifications'
+                            }
+                        },
+                        slots: [
+                            { index: 1, role: 'hero', direction: 'A', differentiator: 'Main', sceneRationale: 'Clear', sceneSource: 'shaper', copyPlacement: 'none', derivedFrom: 'open' },
+                            { index: 2, role: 'feature-detail', direction: 'B', differentiator: 'Detail', sceneRationale: 'Specs', sceneSource: 'shaper', copyPlacement: 'none', derivedFrom: 'open' }
+                        ]
+                    }) }] } }] };
+                }
+            };
+        },
+        document: {
+            addEventListener() {},
+            getElementById(id) { return elements[id] || null; },
+            createElement() { return { value: '', textContent: '' }; }
+        }
+    });
+    const state = baseState('rakuten', 'electronics');
+    state.imageCount = 2;
+    api.setState(state);
+
+    await api.previewPrompts();
+
+    assert.match(elements['prompt-preview-plan'].textContent, /B7 Expert/);
+    assert.match(elements['prompt-preview-plan'].textContent, /85%/);
+});

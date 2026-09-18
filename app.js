@@ -586,7 +586,19 @@ function buildFallbackPlan(template = PLATFORM_TEMPLATES[state.platform]) {
         planSource: 'fallback',
         shapedAt: new Date().toISOString(),
         model: SHAPER_MODEL_ID,
-        productRead: { verificationNeed: 'medium', purchaseType: 'one-off', infoLocation: 'both', anglesSupplied: state.productImages?.length || 0, notes: 'Fallback to platform template.' },
+        productRead: {
+            verificationNeed: 'medium',
+            purchaseType: 'one-off',
+            infoLocation: 'both',
+            anglesSupplied: state.productImages?.length || 0,
+            notes: 'Fallback to platform template.',
+            buyerMotivation: {
+                primary: 'B1_Functional',
+                secondary: [],
+                confidence: 0.5,
+                reason: 'Fallback to platform template.'
+            }
+        },
         batchTone: { character: template.tone, palette: 'Accurate product colors', mood: 'Trustworthy', finish: 'Polished product photography' },
         resolvedImageCount: count,
         countRationale: 'Use the platform template count.',
@@ -644,6 +656,24 @@ function validateShaperPlan(raw, template = PLATFORM_TEMPLATES[state.platform]) 
         seen.add(key);
     });
     const tone = parsed.batchTone && typeof parsed.batchTone === 'object' ? parsed.batchTone : fallback.batchTone;
+
+    // Validate buyerMotivation structure
+    const validMotivationCodes = ['B1_Functional', 'B2_Evidence', 'B3_Lifestyle', 'B4_Aesthetic', 'B5_Value', 'B6_Convenience', 'B7_Expert'];
+    let buyerMotivation = fallback.productRead.buyerMotivation;
+    if (parsed.productRead?.buyerMotivation && typeof parsed.productRead.buyerMotivation === 'object') {
+        const candidate = parsed.productRead.buyerMotivation;
+        if (validMotivationCodes.includes(candidate.primary) && typeof candidate.confidence === 'number') {
+            buyerMotivation = {
+                primary: candidate.primary,
+                secondary: Array.isArray(candidate.secondary)
+                    ? candidate.secondary.filter(code => validMotivationCodes.includes(code)).slice(0, 2)
+                    : [],
+                confidence: Math.max(0, Math.min(1, candidate.confidence)),
+                reason: String(candidate.reason || 'Inferred from product images and category.')
+            };
+        }
+    }
+
     return {
         planFormatVersion: PLAN_FORMAT_VERSION,
         id: String(parsed.id || generateId('plan')),
@@ -655,7 +685,8 @@ function validateShaperPlan(raw, template = PLATFORM_TEMPLATES[state.platform]) 
             purchaseType: ['repeat', 'one-off'].includes(parsed.productRead?.purchaseType) ? parsed.productRead.purchaseType : fallback.productRead.purchaseType,
             infoLocation: ['packaging', 'listing', 'both'].includes(parsed.productRead?.infoLocation) ? parsed.productRead.infoLocation : fallback.productRead.infoLocation,
             anglesSupplied: Math.max(0, Number.parseInt(parsed.productRead?.anglesSupplied, 10) || fallback.productRead.anglesSupplied),
-            notes: String(parsed.productRead?.notes || fallback.productRead.notes)
+            notes: String(parsed.productRead?.notes || fallback.productRead.notes),
+            buyerMotivation
         },
         batchTone: {
             character: String(tone.character || fallback.batchTone.character),
@@ -675,7 +706,19 @@ function buildShaperPayload(template) {
     const schema = JSON.stringify({
         planFormatVersion: PLAN_FORMAT_VERSION,
         id: 'plan_<unique id>', planSource: 'shaper', shapedAt: '<ISO timestamp>', model: SHAPER_MODEL_ID,
-        productRead: { verificationNeed: 'low|medium|high', purchaseType: 'repeat|one-off', infoLocation: 'packaging|listing|both', anglesSupplied: 1, notes: '<short factual observation>' },
+        productRead: {
+            verificationNeed: 'low|medium|high',
+            purchaseType: 'repeat|one-off',
+            infoLocation: 'packaging|listing|both',
+            anglesSupplied: 1,
+            notes: '<short factual observation>',
+            buyerMotivation: {
+                primary: 'B1_Functional|B2_Evidence|B3_Lifestyle|B4_Aesthetic|B5_Value|B6_Convenience|B7_Expert',
+                secondary: ['B1_Functional', '...'],
+                confidence: 0.75,
+                reason: '<why this motivation fits the product>'
+            }
+        },
         batchTone: { character: '<shared character>', palette: '<shared palette>', mood: '<shared mood>', finish: '<shared finish>' },
         resolvedImageCount: template.imageCount, countRationale: '<short reason>',
         slots: [{ index: 1, role: 'hero', direction: '<what this slot communicates>', differentiator: '<how it differs from all sibling slots>', sceneRationale: '<why a scene or plain view is correct>', sceneSource: 'shaper|operator', copyPlacement: 'none|model-rendered|reserve-overlay-area', derivedFrom: 'open|platform-rule|operator' }]
@@ -688,6 +731,7 @@ function buildShaperPayload(template) {
         'You may only decide what is Open. Preserve Must Have facts and platform hard rules. Do not instruct creativity, variety, imagination, or originality.',
         'Use sceneRationale to justify plain or scene-based choices. Plain slots with no scene are valid and preferred when buyer verification is high.',
         'Reason from verification need, repeat versus one-off purchase, and whether information lives on packaging, listing text, or both when selecting the slot mix.',
+        'BUYER MOTIVATION FRAMEWORK: Infer the primary buyer motivation from product images and category. Choose ONE primary from: B1_Functional (function, performance, problem-solving), B2_Evidence (specs, proof, certification), B3_Lifestyle (usage context, daily life fit), B4_Aesthetic (style, taste, brand feeling), B5_Value (price, bundle, promotion), B6_Convenience (ease, speed, low friction), B7_Expert (technical detail, precision, comparison). Choose at most TWO secondary motivations. Report confidence 0.0-1.0 (0.90-1.00 = directly visible, 0.70-0.89 = strong inference, 0.50-0.69 = plausible, below 0.50 = unknown). Use motivation to weight role selection: B1 emphasize benefit/usage/feature-detail; B2 emphasize feature-detail/material-detail/scale, reduce lifestyle; B3 emphasize lifestyle/usage/benefit; B4 emphasize hero/alternate-view/material-detail; B5 emphasize package-contents/benefit, reserve overlay; B6 emphasize usage/package-contents/scale; B7 emphasize feature-detail/material-detail/scale, minimize lifestyle.',
         'Only use usage contexts supported by supplied product facts. Depict people only when operator input supports the audience; do not infer children or safety claims from season.',
         'When category creative preference or batch direction seeds a scene concept, build around it and set sceneSource to operator; otherwise use shaper.',
         `Platform: ${template.name}; aspect ratio: ${template.aspectRatio}; image-count bounds: ${template.minImageCount}-${template.maxImageCount}; default: ${template.imageCount}; hard rules: ${template.slotRules.join(' | ')}`,
@@ -715,11 +759,17 @@ function buildShaperPayload(template) {
             planFormatVersion: { type: 'STRING', enum: [PLAN_FORMAT_VERSION] },
             id: { type: 'STRING' }, planSource: { type: 'STRING', enum: ['shaper'] },
             shapedAt: { type: 'STRING' }, model: { type: 'STRING', enum: [SHAPER_MODEL_ID] },
-            productRead: { type: 'OBJECT', required: ['verificationNeed', 'purchaseType', 'infoLocation', 'anglesSupplied', 'notes'], properties: {
+            productRead: { type: 'OBJECT', required: ['verificationNeed', 'purchaseType', 'infoLocation', 'anglesSupplied', 'notes', 'buyerMotivation'], properties: {
                 verificationNeed: { type: 'STRING', enum: ['low', 'medium', 'high'] },
                 purchaseType: { type: 'STRING', enum: ['repeat', 'one-off'] },
                 infoLocation: { type: 'STRING', enum: ['packaging', 'listing', 'both'] },
-                anglesSupplied: { type: 'INTEGER' }, notes: { type: 'STRING' }
+                anglesSupplied: { type: 'INTEGER' }, notes: { type: 'STRING' },
+                buyerMotivation: { type: 'OBJECT', required: ['primary', 'confidence'], properties: {
+                    primary: { type: 'STRING', enum: ['B1_Functional', 'B2_Evidence', 'B3_Lifestyle', 'B4_Aesthetic', 'B5_Value', 'B6_Convenience', 'B7_Expert'] },
+                    secondary: { type: 'ARRAY', items: { type: 'STRING', enum: ['B1_Functional', 'B2_Evidence', 'B3_Lifestyle', 'B4_Aesthetic', 'B5_Value', 'B6_Convenience', 'B7_Expert'] } },
+                    confidence: { type: 'NUMBER', minimum: 0, maximum: 1 },
+                    reason: { type: 'STRING' }
+                } }
             } },
             batchTone: { type: 'OBJECT', required: ['character', 'palette', 'mood', 'finish'], properties: {
                 character: { type: 'STRING' }, palette: { type: 'STRING' }, mood: { type: 'STRING' }, finish: { type: 'STRING' }
@@ -1143,7 +1193,10 @@ async function previewPrompts() {
         }, `${template.name} / ${category.name} / ${promptRecords.length} prompts`);
         const planSummary = document.getElementById('prompt-preview-plan');
         if (planSummary) {
-            planSummary.textContent = `${plan.planSource}: ${plan.batchTone.character} / ${plan.batchTone.mood} | ${plan.slots.map(slot => slot.role).join(', ')}`;
+            const buyerMotivation = plan.productRead?.buyerMotivation;
+            const motivationLabel = buyerMotivation?.primary?.replace('_', ' ') || 'Unknown';
+            const confidencePct = Math.round((buyerMotivation?.confidence || 0) * 100);
+            planSummary.textContent = `${plan.planSource}: ${plan.batchTone.character} / ${plan.batchTone.mood} | Buyer: ${motivationLabel} (${confidencePct}%) | ${plan.slots.map(slot => slot.role).join(', ')}`;
         }
         renderPromptPreview(promptRecords, 'batch', batchRecord);
         setPromptPreviewLoading(false);
