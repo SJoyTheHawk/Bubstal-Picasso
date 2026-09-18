@@ -4,6 +4,8 @@
 
 This document summarizes the integration of buyer motivation reasoning into the Picasso Shaper component. The implementation follows **Option A: Buyer Motivation Enrichment** from the integration plan, adding buyer-centric reasoning to the Shaper without restructuring the architecture.
 
+**Key Update:** The buyer motivation framework is now **fully embedded** from the skill file (`reference/buyer_motivation_skill.md`) into the Shaper prompt, not condensed inline text. This provides complete guidance (~1900 tokens) to the model.
+
 ## What Was Implemented
 
 ### 1. Buyer Motivation Skill Document
@@ -27,13 +29,13 @@ A comprehensive framework document that defines:
 
 ### 2. Extended Shaper Prompt (`app.js`)
 
-**Location:** `buildShaperPayload()` function (app.js:672-740)
+**Location:** `buildShaperPayload()` function (app.js:703-757)
 
 **Changes:**
-- Added buyer motivation framework instruction to the Shaper prompt
-- Instructs Shaper to infer primary and secondary buyer motivations from product images and category
-- Provides mapping from motivation codes to role emphasis (e.g., B2 Evidence-Seeking → emphasize feature-detail/material-detail/scale)
-- Includes confidence scoring guidance (0.90-1.00 = directly visible, 0.70-0.89 = strong inference, etc.)
+- Added `loadBuyerMotivationSkill()` function to read the full skill file from disk
+- Embedded complete buyer motivation framework (entire `reference/buyer_motivation_skill.md` content, ~1900 tokens) into Shaper prompt
+- Falls back to condensed inline instruction if skill file not found
+- Framework includes all B1-B7 codes, product involvement levels, evidence discipline, hard prohibitions, role weighting mappings, confidence scoring, and example reasoning
 
 ### 3. Extended Shaper Output Schema
 
@@ -79,15 +81,16 @@ buyerMotivation: {
 
 **Location:** `test/app.test.js`
 
-**Added 6 new tests:**
+**Added 7 new tests:**
 1. `validateShaperPlan accepts valid buyerMotivation structure` - Verifies valid structure passes through correctly
 2. `fallback plan includes buyerMotivation with low confidence` - Confirms fallback behavior
 3. `validateShaperPlan coerces invalid buyerMotivation to fallback` - Tests repair logic
-4. `Shaper payload includes buyer motivation framework instruction` - Verifies prompt contains framework
+4. `Shaper payload includes buyer motivation framework instruction` - Verifies full skill file content is embedded
 5. `Shaper response schema requires buyerMotivation in productRead` - Validates schema structure
 6. `prompt preview displays buyer motivation when present` - Tests UI display
+7. `buyer motivation skill file loads and embeds in Shaper payload` - Verifies file loading and embedding
 
-**All 32 tests pass.**
+**All 33 tests pass.**
 
 ## How It Works
 
@@ -165,9 +168,9 @@ Per the integration plan, the following remain out of scope:
 
 ## Files Modified
 
-1. **`reference/buyer_motivation_skill.md`** (new) - Framework documentation
-2. **`app.js`** - Extended Shaper prompt, schema, validation, fallback, and UI display
-3. **`test/app.test.js`** - Added 6 new tests for buyer motivation features
+1. **`reference/buyer_motivation_skill.md`** (new) - Complete framework documentation (~1900 tokens)
+2. **`app.js`** - Added `loadBuyerMotivationSkill()`, extended Shaper prompt with full skill embedding, schema, validation, fallback, and UI display
+3. **`test/app.test.js`** - Added 7 new tests for buyer motivation features, updated test context to support file loading
 
 ## Verification
 
@@ -176,7 +179,15 @@ Run tests:
 npm test
 ```
 
-Expected result: **32 tests pass** (including 6 new buyer motivation tests)
+Expected result: **33 tests pass** (including 7 new buyer motivation tests)
+
+## Performance Impact
+
+- **Prompt size increase:** ~1900 tokens (full buyer motivation skill file embedded)
+- **Response schema:** Added ~50 tokens (buyerMotivation structure)
+- **Total overhead:** ~1950 tokens per Shaper call
+- **Cost impact:** Moderate - increases Shaper prompt by ~15-20% but provides comprehensive framework guidance for better inference
+- **Trade-off:** Higher token cost for more detailed and consistent buyer motivation reasoning
 
 ## Future Enhancement Path
 

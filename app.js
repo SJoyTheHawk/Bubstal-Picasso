@@ -700,6 +700,25 @@ function validateShaperPlan(raw, template = PLATFORM_TEMPLATES[state.platform]) 
     };
 }
 
+function loadBuyerMotivationSkill() {
+    // Load buyer motivation framework skill from file
+    // This is synchronous because it's loaded at prompt build time, not at module load
+    if (typeof require !== 'undefined') {
+        try {
+            const fs = require('fs');
+            const path = require('path');
+            // In browser context, __dirname won't exist; use process.cwd() as fallback
+            const baseDir = typeof __dirname !== 'undefined' ? __dirname : (typeof process !== 'undefined' && process.cwd ? process.cwd() : '.');
+            const skillPath = path.join(baseDir, 'reference', 'buyer_motivation_skill.md');
+            return fs.readFileSync(skillPath, 'utf8');
+        } catch (error) {
+            console.warn('Buyer motivation skill file not found, using inline fallback');
+            return null;
+        }
+    }
+    return null;
+}
+
 function buildShaperPayload(template) {
     const assets = getSelectedAssets();
     const constraints = getActiveConstraints(template);
@@ -723,6 +742,10 @@ function buildShaperPayload(template) {
         resolvedImageCount: template.imageCount, countRationale: '<short reason>',
         slots: [{ index: 1, role: 'hero', direction: '<what this slot communicates>', differentiator: '<how it differs from all sibling slots>', sceneRationale: '<why a scene or plain view is correct>', sceneSource: 'shaper|operator', copyPlacement: 'none|model-rendered|reserve-overlay-area', derivedFrom: 'open|platform-rule|operator' }]
     }, null, 2);
+
+    // Load buyer motivation skill from file
+    const buyerMotivationSkill = loadBuyerMotivationSkill();
+
     const prompt = [
         'You are Shaper, an eCommerce image batch planner. Return JSON only, with no markdown fences.',
         `Closed roles: ${Array.from(SHAPER_ROLES).join(', ')}. Never invent a role.`,
@@ -730,8 +753,7 @@ function buildShaperPayload(template) {
         'Precedence: Must Have > platform hard rule > operator Preferred > Shaper > model freedom.',
         'You may only decide what is Open. Preserve Must Have facts and platform hard rules. Do not instruct creativity, variety, imagination, or originality.',
         'Use sceneRationale to justify plain or scene-based choices. Plain slots with no scene are valid and preferred when buyer verification is high.',
-        'Reason from verification need, repeat versus one-off purchase, and whether information lives on packaging, listing text, or both when selecting the slot mix.',
-        'BUYER MOTIVATION FRAMEWORK: Infer the primary buyer motivation from product images and category. Choose ONE primary from: B1_Functional (function, performance, problem-solving), B2_Evidence (specs, proof, certification), B3_Lifestyle (usage context, daily life fit), B4_Aesthetic (style, taste, brand feeling), B5_Value (price, bundle, promotion), B6_Convenience (ease, speed, low friction), B7_Expert (technical detail, precision, comparison). Choose at most TWO secondary motivations. Report confidence 0.0-1.0 (0.90-1.00 = directly visible, 0.70-0.89 = strong inference, 0.50-0.69 = plausible, below 0.50 = unknown). Use motivation to weight role selection: B1 emphasize benefit/usage/feature-detail; B2 emphasize feature-detail/material-detail/scale, reduce lifestyle; B3 emphasize lifestyle/usage/benefit; B4 emphasize hero/alternate-view/material-detail; B5 emphasize package-contents/benefit, reserve overlay; B6 emphasize usage/package-contents/scale; B7 emphasize feature-detail/material-detail/scale, minimize lifestyle.',
+        buyerMotivationSkill || 'BUYER MOTIVATION FRAMEWORK: Infer the primary buyer motivation from product images and category. Choose ONE primary from: B1_Functional (function, performance, problem-solving), B2_Evidence (specs, proof, certification), B3_Lifestyle (usage context, daily life fit), B4_Aesthetic (style, taste, brand feeling), B5_Value (price, bundle, promotion), B6_Convenience (ease, speed, low friction), B7_Expert (technical detail, precision, comparison). Choose at most TWO secondary motivations. Report confidence 0.0-1.0 (0.90-1.00 = directly visible, 0.70-0.89 = strong inference, 0.50-0.69 = plausible, below 0.50 = unknown). Use motivation to weight role selection: B1 emphasize benefit/usage/feature-detail; B2 emphasize feature-detail/material-detail/scale, reduce lifestyle; B3 emphasize lifestyle/usage/benefit; B4 emphasize hero/alternate-view/material-detail; B5 emphasize package-contents/benefit, reserve overlay; B6 emphasize usage/package-contents/scale; B7 emphasize feature-detail/material-detail/scale, minimize lifestyle.',
         'Only use usage contexts supported by supplied product facts. Depict people only when operator input supports the audience; do not infer children or safety claims from season.',
         'When category creative preference or batch direction seeds a scene concept, build around it and set sceneSource to operator; otherwise use shaper.',
         `Platform: ${template.name}; aspect ratio: ${template.aspectRatio}; image-count bounds: ${template.minImageCount}-${template.maxImageCount}; default: ${template.imageCount}; hard rules: ${template.slotRules.join(' | ')}`,

@@ -16,11 +16,17 @@ function loadApp(overrides = {}) {
         console,
         document,
         window: {},
+        process: { cwd: () => path.join(__dirname, '..') },
+        require: (mod) => {
+            if (mod === 'fs') return fs;
+            if (mod === 'path') return path;
+            return require(mod);
+        },
         ...overrides
     });
     const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
     vm.runInContext(`${source}\n;globalThis.testApi = {\n` +
-        'PLATFORM_TEMPLATES, CATEGORY_PRESETS, SHAPER_ROLES, buildFallbackPlan, validateShaperPlan, buildShaperPayload, shapeBatch, buildPromptRecord, compilePromptRecords, buildBatchPromptRecord, getSelectedAssets, generatePrompts, previewPrompts, copyPreviewPrompt, ' +
+        'PLATFORM_TEMPLATES, CATEGORY_PRESETS, SHAPER_ROLES, loadBuyerMotivationSkill, buildFallbackPlan, validateShaperPlan, buildShaperPayload, shapeBatch, buildPromptRecord, compilePromptRecords, buildBatchPromptRecord, getSelectedAssets, generatePrompts, previewPrompts, copyPreviewPrompt, ' +
         'callNanoBananaAPI, generateSlotsWithConcurrency, exportCurrentBatch, setState(value) { state = value; }, getState() { return state; }\n' +
         '};', context);
     return { context, api: context.testApi };
@@ -751,15 +757,17 @@ test('Shaper payload includes buyer motivation framework instruction', () => {
     const payload = api.buildShaperPayload(api.PLATFORM_TEMPLATES['amazon-jp']);
     const promptText = payload.contents[0].parts[0].text;
 
-    assert.match(promptText, /BUYER MOTIVATION FRAMEWORK/);
-    assert.match(promptText, /B1_Functional/);
-    assert.match(promptText, /B2_Evidence/);
-    assert.match(promptText, /B3_Lifestyle/);
-    assert.match(promptText, /B4_Aesthetic/);
-    assert.match(promptText, /B5_Value/);
-    assert.match(promptText, /B6_Convenience/);
-    assert.match(promptText, /B7_Expert/);
-    assert.match(promptText, /confidence 0\.0-1\.0/);
+    // Verify full skill file is embedded
+    assert.match(promptText, /Buyer Motivation Framework/);
+    assert.match(promptText, /B1 Functional/);
+    assert.match(promptText, /B2 Evidence/);
+    assert.match(promptText, /B3 Lifestyle/);
+    assert.match(promptText, /B4 Aesthetic/);
+    assert.match(promptText, /B5 Value/);
+    assert.match(promptText, /B6 Convenience/);
+    assert.match(promptText, /B7 Expert/);
+    assert.match(promptText, /Evidence Discipline/);
+    assert.match(promptText, /Hard Prohibitions/);
 });
 
 test('Shaper response schema requires buyerMotivation in productRead', () => {
@@ -833,4 +841,25 @@ test('prompt preview displays buyer motivation when present', async () => {
 
     assert.match(elements['prompt-preview-plan'].textContent, /B7 Expert/);
     assert.match(elements['prompt-preview-plan'].textContent, /85%/);
+});
+
+test('buyer motivation skill file loads and embeds in Shaper payload', () => {
+    const { api } = loadApp();
+    const state = baseState('amazon-jp', 'beauty');
+    api.setState(state);
+
+    const skill = api.loadBuyerMotivationSkill();
+    assert.ok(skill !== null, 'Skill file should be loaded');
+    assert.match(skill, /Buyer Motivation Framework/);
+    assert.match(skill, /B1 Functional/);
+    assert.match(skill, /B7 Expert/);
+    assert.match(skill, /Role Weighting Guidance/);
+
+    const payload = api.buildShaperPayload(api.PLATFORM_TEMPLATES['amazon-jp']);
+    const promptText = payload.contents[0].parts[0].text;
+
+    // Verify the skill content is embedded, not the condensed inline version
+    assert.match(promptText, /Buyer Motivation Framework/);
+    assert.match(promptText, /Evidence Discipline/);
+    assert.match(promptText, /Hard Prohibitions/);
 });

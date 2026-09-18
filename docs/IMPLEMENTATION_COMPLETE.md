@@ -2,25 +2,27 @@
 
 ## Summary
 
-All steps of **Option A: Buyer Motivation Enrichment** have been successfully implemented and tested.
+All steps of **Option A: Buyer Motivation Enrichment** have been successfully implemented and tested. The implementation now **embeds the full buyer motivation skill file** into the Shaper prompt for comprehensive guidance.
 
 ## Completion Status
 
 ### Step 1: ✅ Create Buyer Motivation Skill Document
 **File:** `reference/buyer_motivation_skill.md`
+- Complete framework document (~1900 tokens, 187 lines)
 - Extracted B1-B7 buyer motivation codes from reference document
 - Documented product involvement levels (low/medium/high)
 - Included evidence discipline (OBSERVED/INFERRED/UNKNOWN)
 - Added confidence scoring guidance
 - Defined hard prohibitions
 - Mapped motivation codes to role weighting guidance
+- Provided example reasoning for two product types
 
 ### Step 2: ✅ Extend Shaper Prompt
-**Location:** `app.js` - `buildShaperPayload()` function
-- Added buyer motivation framework to Shaper system prompt
-- Instructed Shaper to infer primary and secondary motivations from product images
-- Provided motivation-to-role-emphasis mapping (B1→benefit/usage, B2→feature-detail/material-detail, etc.)
-- Included confidence scoring instruction
+**Location:** `app.js` - `loadBuyerMotivationSkill()` and `buildShaperPayload()` functions
+- **NEW:** Added `loadBuyerMotivationSkill()` function to read full skill file from disk
+- **EMBEDDED:** Full skill file content (~1900 tokens) is embedded into Shaper prompt
+- Falls back to condensed inline instruction if file not found
+- Provides comprehensive framework guidance including all codes, evidence discipline, hard prohibitions, role weighting, confidence scoring, and examples
 
 ### Step 3: ✅ Extend Shaper Output Schema
 **Location:** `app.js` - `responseSchema` in `buildShaperPayload()`
@@ -42,14 +44,16 @@ All steps of **Option A: Buyer Motivation Enrichment** have been successfully im
 
 ### Step 6: ✅ Tests
 **Location:** `test/app.test.js`
-- Added 6 comprehensive tests covering:
+- Added 7 comprehensive tests covering:
   - Valid structure acceptance
   - Fallback behavior
   - Invalid structure coercion
-  - Prompt inclusion
+  - **Full skill file embedding** (new test)
+  - Prompt inclusion verification
   - Schema validation
   - UI display
-- **All 32 tests pass** (including 6 new buyer motivation tests)
+- Updated test context to provide `fs`, `path`, and `process` for file loading in VM
+- **All 33 tests pass** (including 7 new buyer motivation tests)
 
 ## Verification Results
 
@@ -57,9 +61,9 @@ All steps of **Option A: Buyer Motivation Enrichment** have been successfully im
 npm test
 ```
 
-**Result:** ✅ All 32 tests pass
+**Result:** ✅ All 33 tests pass
 - 26 existing tests: ✅ Pass (no regressions)
-- 6 new buyer motivation tests: ✅ Pass
+- 7 new buyer motivation tests: ✅ Pass (including skill file embedding test)
 
 **Syntax validation:** ✅ `app.js` compiles without errors
 
@@ -152,10 +156,12 @@ This tells the operator:
 
 ## Performance Impact
 
-- **Prompt size increase:** ~100 tokens (buyer motivation framework instruction)
+- **Prompt size increase:** ~1900 tokens (full buyer motivation skill file embedded)
 - **Response schema:** Added ~50 tokens (buyerMotivation structure)
-- **Total overhead:** ~150 tokens per Shaper call
-- **Cost impact:** Negligible (Shaper already calls Gemini 3.5 Flash, adding <5% to prompt size)
+- **Total overhead:** ~1950 tokens per Shaper call
+- **Cost impact:** Moderate - increases Shaper prompt by ~15-20% but provides comprehensive framework guidance for better inference
+- **Trade-off:** Higher token cost for more detailed and consistent buyer motivation reasoning
+- **Fallback:** If skill file not found, falls back to condensed ~200 token inline instruction
 
 ## Architecture Preservation
 
@@ -185,14 +191,16 @@ This tells the operator:
 
 ## Success Criteria Met
 
-✅ All tests pass (32/32)  
+✅ All tests pass (33/33)  
 ✅ No syntax errors in app.js  
-✅ Buyer motivation framework documented  
-✅ Shaper prompt extended with motivation reasoning  
+✅ Buyer motivation framework documented (~1900 tokens)  
+✅ **Full skill file embedded** in Shaper prompt (not condensed inline)  
+✅ Shaper prompt extended with complete motivation reasoning framework  
 ✅ Output schema includes buyerMotivation structure  
 ✅ Validation and fallback handle invalid structures  
 ✅ Preview dialog displays buyer motivation  
 ✅ No breaking changes to existing functionality  
+✅ Graceful fallback if skill file missing  
 
 ## Status: **COMPLETE** ✅
 
