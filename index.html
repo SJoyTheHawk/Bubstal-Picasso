@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bubstal Picaso - eCommerce Image Generator</title>
+    <title>Bubstal Picasso - eCommerce Image Generator</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
             <div class="brand">
                 <span class="brand-mark" aria-hidden="true">B</span>
                 <div class="brand-text">
-                    <strong>Bubstal Picaso</strong>
+                    <strong>Bubstal Picasso</strong>
                     <span data-i18n="brand.subtitle">Product image production</span>
                 </div>
             </div>
@@ -93,6 +93,16 @@
                         </div>
                     </div>
                     <p class="setup-note" id="setup-note">Amazon.co.jp / 7 images / 1:1</p>
+                    <div class="grid-2 campaign-fields">
+                        <div class="form-group">
+                            <label for="season"><span data-i18n="setup.season">Campaign season</span> <span class="opt" data-i18n="common.optional">Optional</span></label>
+                            <input id="season" type="text" data-i18n-placeholder="setup.seasonPlaceholder" placeholder="e.g. Summer 2027">
+                        </div>
+                        <div class="form-group">
+                            <label for="promotion"><span data-i18n="setup.promotion">Promotion</span> <span class="opt" data-i18n="common.optional">Optional</span></label>
+                            <input id="promotion" type="text" data-i18n-placeholder="setup.promotionPlaceholder" placeholder="e.g. Summer sale">
+                        </div>
+                    </div>
                 </section>
 
                 <section class="section-card operator-section" id="product-section">
@@ -220,7 +230,7 @@
                     </div>
                     <dl class="summary-list">
                         <div><dt data-i18n="review.marketplace">Marketplace</dt><dd id="summary-platform">Amazon.co.jp</dd></div>
-                        <div><dt data-i18n="review.output">Output</dt><dd id="summary-plan">7 images / 1:1 / PNG 2K</dd></div>
+                        <div><dt data-i18n="review.output">Output</dt><dd id="summary-plan">7 images / 1:1 / PNG 1K</dd></div>
                         <div><dt data-i18n="review.product">Product</dt><dd id="summary-product">Not entered</dd></div>
                         <div><dt data-i18n="review.media">Media</dt><dd id="summary-media">0 product / 0 reference</dd></div>
                     </dl>
@@ -234,7 +244,15 @@
                         <button id="preview-prompts-btn" class="btn-secondary" data-i18n="actions.preview" disabled>Preview prompts</button>
                         <button id="generate-btn" class="btn-primary btn-generate" data-i18n="actions.generate" disabled>Generate batch</button>
                     </div>
-                    <p class="generation-note" id="generation-note">Generates 7 images sequentially. Preview is free.</p>
+                    <div id="task-status" class="task-status" role="status" aria-live="polite" hidden>
+                        <span class="spinner" aria-hidden="true"></span>
+                        <div class="task-status-copy">
+                            <strong id="task-status-title"></strong>
+                            <span id="task-status-detail"></span>
+                        </div>
+                        <span id="task-status-elapsed" class="task-status-elapsed"></span>
+                    </div>
+                    <p class="generation-note" id="generation-note">Generates 7 coordinated images from individual slot prompts, two at a time.</p>
                     <div class="secondary-actions">
                         <button id="save-draft-btn" class="btn-quiet" data-i18n="actions.saveDraft" disabled>Save draft</button>
                         <button id="export-btn" class="btn-quiet" data-i18n="actions.export" disabled>Export outputs</button>
@@ -262,27 +280,40 @@
     <dialog id="prompt-preview-dialog" class="panel-dialog prompt-preview-dialog" aria-labelledby="prompt-preview-title">
         <div class="dialog-header">
             <div>
-                <p class="eyebrow" data-i18n="prompt.eyebrow">No API call</p>
+                <p class="eyebrow" data-i18n="prompt.eyebrow">Shaper plan</p>
                 <h2 id="prompt-preview-title" data-i18n="prompt.title">Prompt preview</h2>
                 <p id="prompt-preview-summary" class="hint"></p>
+                <p id="prompt-preview-plan" class="hint"></p>
             </div>
             <button id="close-prompt-preview" class="dialog-close" type="button" data-i18n-aria-label="prompt.close" data-i18n-title="prompt.close" aria-label="Close prompt preview" title="Close">&times;</button>
         </div>
         <div class="dialog-body">
-            <label for="prompt-preview-select" data-i18n="prompt.imagePlan">Image plan</label>
-            <select id="prompt-preview-select"></select>
-            <dl class="prompt-preview-meta">
-                <div><dt data-i18n="prompt.model">Model</dt><dd id="prompt-preview-model"></dd></div>
-                <div><dt data-i18n="prompt.output">Output</dt><dd id="prompt-preview-output"></dd></div>
-                <div><dt data-i18n="prompt.imagesSent">Images sent</dt><dd id="prompt-preview-assets"></dd></div>
-            </dl>
-            <details class="raw-prompt" open>
-                <summary data-i18n="prompt.exact">Exact prompt</summary>
-                <pre id="prompt-preview-content" class="prompt-preview-content"></pre>
-            </details>
+            <div id="prompt-preview-loading" class="prompt-preview-loading" role="status" aria-live="polite" hidden>
+                <span class="spinner spinner-large" aria-hidden="true"></span>
+                <div>
+                    <h3 id="prompt-preview-loading-title" data-i18n="prompt.loadingTitle">Gemini 3.5 is building your prompt plan</h3>
+                    <p id="prompt-preview-loading-detail" data-i18n="prompt.loadingDetail">Analyzing your product photos and requirements. This can take up to a minute.</p>
+                    <span id="prompt-preview-loading-elapsed" class="task-status-elapsed"></span>
+                </div>
+            </div>
+            <div id="prompt-preview-ready">
+                <label for="prompt-preview-select" data-i18n="prompt.imagePlan">Image plan</label>
+                <select id="prompt-preview-select"></select>
+                <dl class="prompt-preview-meta">
+                    <div><dt data-i18n="prompt.model">Model</dt><dd id="prompt-preview-model"></dd></div>
+                    <div><dt data-i18n="prompt.output">Output</dt><dd id="prompt-preview-output"></dd></div>
+                    <div><dt data-i18n="prompt.imagesSent">Images sent</dt><dd id="prompt-preview-assets"></dd></div>
+                </dl>
+                <details class="raw-prompt" open>
+                    <summary data-i18n="prompt.exact">Exact prompt</summary>
+                    <pre id="prompt-preview-content" class="prompt-preview-content"></pre>
+                </details>
+            </div>
         </div>
         <div class="dialog-actions">
             <button id="copy-prompt-preview" class="copy-prompt-btn" type="button" data-i18n="prompt.copy">Copy prompt</button>
+            <button id="regenerate-plan-btn" class="btn-secondary" type="button" data-i18n="prompt.regenerate">Regenerate plan</button>
+            <button id="generate-from-preview-btn" class="btn-primary" type="button" data-i18n="prompt.generate">Generate</button>
             <button id="done-prompt-preview" class="btn-primary" type="button" data-i18n="prompt.done">Done</button>
         </div>
     </dialog>
@@ -312,8 +343,8 @@
             var hasName = !!(name && name.value.trim());
             var hasPhoto = productCount > 0;
             var authReady = !!(authStatus && authStatus.dataset.ready === 'true');
-            var previewReady = hasName && hasPhoto;
-            var generationReady = previewReady && authReady;
+            var inputReady = hasName && hasPhoto;
+            var generationReady = inputReady && authReady;
             var platformName = platform ? t('platform.' + platform.value) : '';
             var imageCount = count ? count.value : '0';
 
@@ -346,10 +377,10 @@
             var previewButton = document.getElementById('preview-prompts-btn');
             var generateButton = document.getElementById('generate-btn');
             var saveDraftButton = document.getElementById('save-draft-btn');
-            if (previewButton) previewButton.disabled = !previewReady;
-            if (generateButton && generateButton.dataset.busy !== 'true') generateButton.disabled = !generationReady;
+            if (previewButton) previewButton.disabled = !generationReady || previewButton.dataset.taskLock === 'true';
+            if (generateButton) generateButton.disabled = !generationReady || generateButton.dataset.taskLock === 'true';
             if (saveDraftButton) saveDraftButton.disabled = !hasPhoto;
-            document.body.classList.toggle('preview-ready', previewReady);
+            document.body.classList.toggle('preview-ready', generationReady);
 
             var badge = document.getElementById('readiness-badge');
             if (badge) {

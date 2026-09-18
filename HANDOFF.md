@@ -1,8 +1,8 @@
-# Bubstal Picaso: Product Handoff
+# Bubstal Picasso: Product Handoff
 
 ## Objective
 
-Bubstal Picaso uses AI-generated product photography to reduce the time and cost of repetitive eCommerce image production normally handled by human designers.
+Bubstal Picasso uses AI-generated product photography to reduce the time and cost of repetitive eCommerce image production normally handled by human designers.
 
 The goal is not to pursue the best possible image at any cost. The goal is to balance generation cost, production speed, and usable commercial quality. A successful batch should preserve the product and required business information while needing substantially less briefing, manual design work, and correction.
 
@@ -64,12 +64,12 @@ Unsupported prices, ratings, comparisons, discounts, measurements, certification
 
 ## Prompt And Image Flow
 
-Operators can preview every compiled prompt and its request settings before generation. Previewing has no API or persistence side effects. Generate Batch remains the explicit action that commits the batch to Nano Banana Pro.
+Operators can preview every compiled prompt and its request settings before generation. Previewing may call the Shaper, but has no image-generation or persistence side effects. Generate Batch remains the explicit action that commits the batch to Nano Banana Pro.
 
 After that action, the application performs two internal steps:
 
 1. Compile a structured prompt record for every image slot and save the batch.
-2. Send each prompt and its eligible product/reference images to Nano Banana Pro sequentially, saving every success or failure immediately.
+2. Generate every slot from its exact prompt record, with at most two Nano Banana Pro requests in flight, and save each outcome against the prompt ID that initiated it.
 
 This separation lets the team inspect exactly what prompt produced each output and prepares stable prompt/output pairs for a future human-review survey. It does not store hidden model reasoning.
 
@@ -88,7 +88,7 @@ Use a lightweight hybrid policy:
 
 ## Persistence And Export
 
-The complete working batch remains in the existing browser IndexedDB record, including uploaded source and reference images. Prompt records are saved before rendering, and output records are saved after every request so partial work survives a later failure.
+The complete working batch remains in the existing browser IndexedDB record, including uploaded source and reference images. Prompt records are saved before rendering, and output records are saved incrementally as slots finish so completed work survives a later failure.
 
 Operators can export a JSON review package containing prompts, copy plans, generated images, statuses, model settings, and timestamps. Uploaded source and reference image binaries are intentionally omitted from the export.
 

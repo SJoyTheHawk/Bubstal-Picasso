@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Picaso today is a deterministic template compiler. Slot roles come from fixed
+Picasso today is a deterministic template compiler. Slot roles come from fixed
 arrays indexed by position (`PLATFORM_TEMPLATES[platform].imagePurposes[i]` and
 `slotRules[i]`), so every product on a given marketplace receives an identical
 batch structure. A shampoo and a laptop get the same seven slots.
@@ -307,4 +307,3 @@ inspectable before generation and present in the export; and a Shaper failure
 degrades to today's behavior instead of blocking work.
 
 Per `HANDOFF.md`: commercial usefulness at practical cost, not visual perfection.
-

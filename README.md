@@ -1,6 +1,6 @@
-# Bubstal Picaso
+# Bubstal Picasso
 
-Bubstal Picaso is a lightweight eCommerce product image generator. It compiles operator inputs into inspectable prompt records, then uses Nano Banana Pro to render a coordinated image batch.
+Bubstal Picasso is a lightweight eCommerce product image generator. It compiles operator inputs into inspectable prompt records, then uses Nano Banana Pro to render a coordinated image batch.
 
 The product is designed to reduce repetitive designer time and production cost. Operators identify what Must be preserved, add a small amount of Preferred direction, and leave all other creative decisions open to the model.
 
@@ -11,9 +11,10 @@ The product is designed to reduce repetitive designer time and production cost. 
 - Must Have and Preferred constraints; unselected details stay open
 - Multiple product identity images plus style, layout, and color references
 - Same-tone, different-design direction across a batch
-- Nano Banana Pro generation at PNG/2K with platform aspect ratios
-- Prompt records saved before rendering and output records saved after every request
-- Partial batch recovery when an individual generation fails
+- Gemini Shaper planning from product images, campaign context, and platform rules
+- Nano Banana Pro generation at PNG/1K with platform aspect ratios
+- Prompt records saved before rendering and output records saved as each slot completes
+- Deterministic prompt-to-output mapping with isolated per-slot failures
 - IndexedDB drafts and history
 - Output-only JSON export for future human review
 - Hybrid text handling for model-rendered headlines and later accuracy-critical overlays
@@ -66,12 +67,28 @@ For production, attach a user-managed service account with only the required IAM
 4. Optionally upload references and mark their style, layout, or color roles.
 5. Enable only the constraints that matter and mark each one Must Have or Preferred.
 6. Add a short batch direction when needed.
-7. Select Preview Prompts to inspect every exact prompt and request setting without calling the API.
-8. Close the preview and select Generate Batch as the explicit generation action.
+7. Select Preview Prompts to create and inspect the cached Shaper plan and every exact prompt.
+8. Generate from the preview or close it and select Generate Batch; both reuse the approved plan.
 9. Inspect the generated images, prompt records, and text reserved for later overlay.
 10. Export the output JSON when a batch is ready for review.
 
-The Generate action first saves all compiled prompts, then renders images sequentially. Each result is saved immediately, so completed images remain available if a later request fails.
+The Generate action first saves all compiled prompts, then generates each image from its exact slot prompt with at most two requests in flight. Every response is linked directly to the prompt ID that initiated it, and each outcome is saved as it completes.
+
+## Image Generation Architecture
+
+Bubstal Picasso uses one coordinated plan with deterministic per-slot rendering:
+
+1. Gemini 3.5 Flash analyzes the inputs and creates one shared Shaper plan.
+2. The compiler creates one auditable prompt record for every image slot.
+3. Gemini 3 Pro Image generates each slot independently from that record.
+4. Two slot requests run concurrently to balance latency and rate-limit pressure.
+5. Every output is linked directly to its originating prompt ID.
+
+This avoids relying on the order of partial multi-image responses, which do not
+carry structured slot IDs or guarantee the requested image count. The shared
+tone and sibling differentiators keep the independently rendered slots aligned
+while discouraging repeated compositions. See `MULTI_IMAGE_OUTPUT_SUMMARY.md`
+for the API analysis.
 
 ## Text Policy
 
@@ -87,10 +104,11 @@ The prompt and output IDs are intended to support a later human-review survey. A
 
 - Frontend: vanilla HTML, CSS, and JavaScript
 - Server: Express proxy using Google ADC
-- Model: `gemini-3-pro-image`
-- Output: one PNG image per slot at 2K
+- Shaper model: `gemini-3.5-flash` (override with `SHAPER_MODEL_ID`)
+- Image model: `gemini-3-pro-image` (override with `GEMINI_MODEL_ID`)
+- Output: one PNG image per slot at 1K (1024x1024 for the current 1:1 templates)
 - Input image limit: at most 14 combined product and visual-reference images are sent per request; product images take priority
-- Rendering: sequential, with no automatic retries or variants
+- Rendering: one request per slot, with concurrency limited to two and no automatic variants
 - Storage: one versioned IndexedDB batch record containing inputs, prompts, outputs, and legacy-compatible results
 
 Marketplace and category presets are practical generation guidance. Sellers remain responsible for current marketplace, advertising, and legal compliance.

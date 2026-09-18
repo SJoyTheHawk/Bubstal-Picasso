@@ -1,6 +1,14 @@
 const MODEL_ID = 'gemini-3-pro-image';
-const PROMPT_FORMAT_VERSION = '2.0';
+const SHAPER_MODEL_ID = 'gemini-3.5-flash';
+const PROMPT_FORMAT_VERSION = '3.0';
+const PLAN_FORMAT_VERSION = '1.0';
 const MAX_INPUT_IMAGES = 14;
+// The image model accepts fixed size tiers only (512px, 1K, 2K, 4K).
+const IMAGE_SIZE = '1K';
+const SHAPER_ROLES = Object.freeze(new Set([
+    'hero', 'benefit', 'feature-detail', 'material-detail', 'scale', 'usage',
+    'alternate-view', 'package-contents', 'lifestyle'
+]));
 
 function uiText(key, variables = {}, fallback = key) {
     return typeof window !== 'undefined' && window.BubstalI18n
@@ -29,6 +37,8 @@ const PLATFORM_TEMPLATES = {
     'amazon-jp': {
         name: 'Amazon.co.jp',
         imageCount: 7,
+        minImageCount: 1,
+        maxImageCount: 10,
         aspectRatio: '1:1',
         imagePurposes: [
             'Main product image',
@@ -61,6 +71,8 @@ const PLATFORM_TEMPLATES = {
     'shopee-tw': {
         name: 'Shopee TW',
         imageCount: 9,
+        minImageCount: 1,
+        maxImageCount: 10,
         aspectRatio: '1:1',
         imagePurposes: [
             'Promotional hero',
@@ -98,6 +110,8 @@ const PLATFORM_TEMPLATES = {
     'rakuten': {
         name: 'Rakuten',
         imageCount: 7,
+        minImageCount: 1,
+        maxImageCount: 10,
         aspectRatio: '1:1',
         imagePurposes: [
             'Main product image',
@@ -175,12 +189,17 @@ let state = {
     referenceImages: [],
     constraints: {},
     batchDirection: '',
+    season: '',
+    promotion: '',
+    shaperPlan: null,
+    imageCountTouched: false,
     currentBatch: null,
     authReady: false
 };
 
 // ===== INDEXEDDB SETUP =====
 let db;
+let activeTask = null;
 
 function initDB() {
     return new Promise((resolve, reject) => {
@@ -485,6 +504,23 @@ function getSelectedAssets() {
 }
 
 function buildCopyPlan(constraints, imageIndex) {
+    const shapedPlacement = state.shaperPlan?.planSource === 'shaper'
+        ? state.shaperPlan.slots?.[imageIndex]?.copyPlacement
+        : null;
+    if (shapedPlacement) {
+        const reserveSlots = state.shaperPlan.slots
+            .map((slot, index) => slot.copyPlacement === 'reserve-overlay-area' ? index : -1)
+            .filter(index => index >= 0);
+        const overlayItems = constraints.filter(item => OVERLAY_CONSTRAINT_IDS.has(item.id));
+        const overlayText = shapedPlacement === 'reserve-overlay-area'
+            ? overlayItems.filter((_, index) => reserveSlots[index % reserveSlots.length] === imageIndex)
+            : [];
+        const headline = constraints.find(item => item.id === 'promotional_message');
+        const modelRenderedText = shapedPlacement === 'model-rendered' && headline && state.platform !== 'amazon-jp'
+            ? [{ label: headline.label, value: headline.value }]
+            : [];
+        return { modelRenderedText, overlayText };
+    }
     const lastSlot = Math.max(0, state.imageCount - 1);
     const copySlot = {
         promotional_price: 0,
@@ -505,6 +541,226 @@ function buildCopyPlan(constraints, imageIndex) {
         : [];
 
     return { modelRenderedText, overlayText };
+}
+
+function roleForPurpose(purpose, index) {
+    const text = String(purpose || '').toLowerCase();
+    if (text.includes('hero') || text.includes('main product')) return 'hero';
+    if (text.includes('benefit')) return 'benefit';
+    if (text.includes('material') || text.includes('quality') || text.includes('finish')) return 'material-detail';
+    if (text.includes('scale') || text.includes('size')) return 'scale';
+    if (text.includes('package') || text.includes('packaging')) return 'package-contents';
+    if (text.includes('lifestyle') || text.includes('environment') || text.includes('context')) return 'lifestyle';
+    if (text.includes('use')) return 'usage';
+    if (text.includes('alternate')) return 'alternate-view';
+    if (text.includes('feature')) return 'feature-detail';
+    return index === 0 ? 'hero' : 'feature-detail';
+}
+
+function fallbackCopyPlacement(template, index, count) {
+    const lastSlot = Math.max(0, count - 1);
+    const copySlot = {
+        promotional_price: 0, trust_markers: 0, specifications: Math.min(1, lastSlot),
+        exact_claims: Math.min(1, lastSlot), quality_claims: Math.min(2, lastSlot),
+        size_info: Math.min(3, lastSlot), safety_text: lastSlot
+    };
+    const ids = Object.keys(copySlot).filter(id => copySlot[id] === index);
+    return ids.length ? 'reserve-overlay-area' : (index === 0 && template.name !== 'Amazon.co.jp' ? 'model-rendered' : 'none');
+}
+
+function buildFallbackPlan(template = PLATFORM_TEMPLATES[state.platform]) {
+    const count = Math.max(template.minImageCount, Math.min(state.imageCount || template.imageCount, template.maxImageCount));
+    const slots = Array.from({ length: count }, (_, index) => ({
+        index: index + 1,
+        role: roleForPurpose(template.imagePurposes[index], index),
+        direction: template.slotRules[index] || 'Create a useful additional product view with a new composition that fits the shared batch tone.',
+        differentiator: template.imagePurposes[index] || `Additional product view ${index + 1}`,
+        sceneRationale: 'Static platform guidance; use a plain product view unless the platform rule calls for context.',
+        sceneSource: 'operator',
+        copyPlacement: fallbackCopyPlacement(template, index, count),
+        derivedFrom: 'platform-rule'
+    }));
+    return {
+        planFormatVersion: PLAN_FORMAT_VERSION,
+        id: generateId('plan'),
+        planSource: 'fallback',
+        shapedAt: new Date().toISOString(),
+        model: SHAPER_MODEL_ID,
+        productRead: { verificationNeed: 'medium', purchaseType: 'one-off', infoLocation: 'both', anglesSupplied: state.productImages?.length || 0, notes: 'Fallback to platform template.' },
+        batchTone: { character: template.tone, palette: 'Accurate product colors', mood: 'Trustworthy', finish: 'Polished product photography' },
+        resolvedImageCount: count,
+        countRationale: 'Use the platform template count.',
+        slots
+    };
+}
+
+function parseShaperResponse(raw) {
+    if (raw && typeof raw === 'object') return raw;
+    const text = typeof raw === 'string' ? raw : '';
+    const unfenced = text.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+    try { return JSON.parse(unfenced); } catch (_) { return null; }
+}
+
+function validateShaperPlan(raw, template = PLATFORM_TEMPLATES[state.platform]) {
+    const parsed = parseShaperResponse(raw);
+    if (!parsed || !Array.isArray(parsed.slots)) return buildFallbackPlan(template);
+    const fallback = buildFallbackPlan(template);
+    const targetCount = state.imageCountTouched
+        ? Math.max(template.minImageCount, Math.min(Number(state.imageCount) || template.imageCount, template.maxImageCount))
+        : Math.max(template.minImageCount, Math.min(Number(parsed.resolvedImageCount) || template.imageCount, template.maxImageCount));
+    const sourceSlots = new Map(parsed.slots.map((slot, position) => [Number(slot?.index) || position + 1, slot]));
+    const slots = Array.from({ length: targetCount }, (_, index) => {
+        const candidate = sourceSlots.get(index + 1);
+        if (!candidate || typeof candidate !== 'object') {
+            const repaired = fallback.slots[index] || fallback.slots[fallback.slots.length - 1];
+            return { ...repaired, index: index + 1 };
+        }
+        const fallbackSlot = fallback.slots[index] || fallback.slots[fallback.slots.length - 1];
+        const role = SHAPER_ROLES.has(candidate.role) ? candidate.role : fallbackSlot.role;
+        return {
+            index: index + 1,
+            role,
+            direction: String(candidate.direction || fallbackSlot.direction),
+            differentiator: String(candidate.differentiator || fallbackSlot.differentiator),
+            sceneRationale: String(candidate.sceneRationale || fallbackSlot.sceneRationale),
+            sceneSource: candidate.sceneSource === 'operator' ? 'operator' : 'shaper',
+            copyPlacement: ['none', 'model-rendered', 'reserve-overlay-area'].includes(candidate.copyPlacement) ? candidate.copyPlacement : fallbackSlot.copyPlacement,
+            derivedFrom: candidate.derivedFrom === 'platform-rule' ? 'platform-rule' : 'open'
+        };
+    });
+    const accuracyCritical = getActiveConstraints(template).some(item => OVERLAY_CONSTRAINT_IDS.has(item.id));
+    if (accuracyCritical && !slots.some(slot => slot.copyPlacement === 'reserve-overlay-area')) {
+        const fallbackReserveIndex = fallback.slots.findIndex(slot => slot.copyPlacement === 'reserve-overlay-area');
+        slots[Math.max(0, fallbackReserveIndex)].copyPlacement = 'reserve-overlay-area';
+    }
+    const seen = new Set();
+    slots.forEach((slot, index) => {
+        let key = slot.differentiator.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+        const nearDuplicate = Array.from(seen).some(previous => key.length > 10 && (key.includes(previous) || previous.includes(key)));
+        if (!key || seen.has(key) || nearDuplicate) {
+            slot.differentiator = fallback.slots[index]?.differentiator || `Distinct product view ${index + 1}`;
+            key = slot.differentiator.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+        }
+        seen.add(key);
+    });
+    const tone = parsed.batchTone && typeof parsed.batchTone === 'object' ? parsed.batchTone : fallback.batchTone;
+    return {
+        planFormatVersion: PLAN_FORMAT_VERSION,
+        id: String(parsed.id || generateId('plan')),
+        planSource: parsed.planSource === 'fallback' ? 'fallback' : 'shaper',
+        shapedAt: String(parsed.shapedAt || new Date().toISOString()),
+        model: String(parsed.model || SHAPER_MODEL_ID),
+        productRead: {
+            verificationNeed: ['low', 'medium', 'high'].includes(parsed.productRead?.verificationNeed) ? parsed.productRead.verificationNeed : fallback.productRead.verificationNeed,
+            purchaseType: ['repeat', 'one-off'].includes(parsed.productRead?.purchaseType) ? parsed.productRead.purchaseType : fallback.productRead.purchaseType,
+            infoLocation: ['packaging', 'listing', 'both'].includes(parsed.productRead?.infoLocation) ? parsed.productRead.infoLocation : fallback.productRead.infoLocation,
+            anglesSupplied: Math.max(0, Number.parseInt(parsed.productRead?.anglesSupplied, 10) || fallback.productRead.anglesSupplied),
+            notes: String(parsed.productRead?.notes || fallback.productRead.notes)
+        },
+        batchTone: {
+            character: String(tone.character || fallback.batchTone.character),
+            palette: String(tone.palette || fallback.batchTone.palette),
+            mood: String(tone.mood || fallback.batchTone.mood),
+            finish: String(tone.finish || fallback.batchTone.finish)
+        },
+        resolvedImageCount: targetCount,
+        countRationale: String(parsed.countRationale || fallback.countRationale),
+        slots
+    };
+}
+
+function buildShaperPayload(template) {
+    const assets = getSelectedAssets();
+    const constraints = getActiveConstraints(template);
+    const schema = JSON.stringify({
+        planFormatVersion: PLAN_FORMAT_VERSION,
+        id: 'plan_<unique id>', planSource: 'shaper', shapedAt: '<ISO timestamp>', model: SHAPER_MODEL_ID,
+        productRead: { verificationNeed: 'low|medium|high', purchaseType: 'repeat|one-off', infoLocation: 'packaging|listing|both', anglesSupplied: 1, notes: '<short factual observation>' },
+        batchTone: { character: '<shared character>', palette: '<shared palette>', mood: '<shared mood>', finish: '<shared finish>' },
+        resolvedImageCount: template.imageCount, countRationale: '<short reason>',
+        slots: [{ index: 1, role: 'hero', direction: '<what this slot communicates>', differentiator: '<how it differs from all sibling slots>', sceneRationale: '<why a scene or plain view is correct>', sceneSource: 'shaper|operator', copyPlacement: 'none|model-rendered|reserve-overlay-area', derivedFrom: 'open|platform-rule|operator' }]
+    }, null, 2);
+    const prompt = [
+        'You are Shaper, an eCommerce image batch planner. Return JSON only, with no markdown fences.',
+        `Closed roles: ${Array.from(SHAPER_ROLES).join(', ')}. Never invent a role.`,
+        `JSON schema: ${schema}. Each slot must include index, role, direction, differentiator, sceneRationale, sceneSource (shaper|operator), copyPlacement (none|model-rendered|reserve-overlay-area), derivedFrom (open|platform-rule|operator).`,
+        'Precedence: Must Have > platform hard rule > operator Preferred > Shaper > model freedom.',
+        'You may only decide what is Open. Preserve Must Have facts and platform hard rules. Do not instruct creativity, variety, imagination, or originality.',
+        'Use sceneRationale to justify plain or scene-based choices. Plain slots with no scene are valid and preferred when buyer verification is high.',
+        'Reason from verification need, repeat versus one-off purchase, and whether information lives on packaging, listing text, or both when selecting the slot mix.',
+        'Only use usage contexts supported by supplied product facts. Depict people only when operator input supports the audience; do not infer children or safety claims from season.',
+        'When category creative preference or batch direction seeds a scene concept, build around it and set sceneSource to operator; otherwise use shaper.',
+        `Platform: ${template.name}; aspect ratio: ${template.aspectRatio}; image-count bounds: ${template.minImageCount}-${template.maxImageCount}; default: ${template.imageCount}; hard rules: ${template.slotRules.join(' | ')}`,
+        `Category guidance: ${CATEGORY_PRESETS[state.category]?.guidance || ''}`,
+        `Product: ${state.productName}; variant: ${state.productVariant}; facts: ${state.categoryFacts}`,
+        `Campaign season (target, paired with market ${template.name}): ${state.season || 'unspecified'}; promotion: ${state.promotion || 'none'}; batch direction: ${state.batchDirection || 'none'}`,
+        `Operator constraints: ${JSON.stringify(constraints)}`,
+        `Reference image roles: ${JSON.stringify(state.referenceImages.map(image => image.roles || []))}`,
+        state.imageCountTouched ? `Operator fixed image count: ${state.imageCount}` : 'Operator has not fixed image count; propose a count within the platform bounds.',
+        'Author one shared batchTone object for all slots. Every differentiator must be distinct and explicitly distinguish its slot from siblings.'
+    ].join('\n\n');
+    const parts = [{ text: prompt }];
+    assets.productImages.forEach((image, index) => {
+        parts.push({ text: `Product image ${index + 1}; inspect it for productRead.` });
+        parts.push({ inlineData: { mimeType: (image.data.match(/^data:([^;]+);/) || [])[1] || 'image/png', data: (image.data.split(',')[1] || image.data) } });
+    });
+    assets.referenceImages.forEach((image, index) => {
+        parts.push({ text: `Reference image ${index + 1}; roles: ${(image.roles || []).join(', ') || 'general inspiration'}.` });
+        parts.push({ inlineData: { mimeType: (image.data.match(/^data:([^;]+);/) || [])[1] || 'image/png', data: (image.data.split(',')[1] || image.data) } });
+    });
+    const responseSchema = {
+        type: 'OBJECT',
+        required: ['productRead', 'batchTone', 'resolvedImageCount', 'countRationale', 'slots'],
+        properties: {
+            planFormatVersion: { type: 'STRING', enum: [PLAN_FORMAT_VERSION] },
+            id: { type: 'STRING' }, planSource: { type: 'STRING', enum: ['shaper'] },
+            shapedAt: { type: 'STRING' }, model: { type: 'STRING', enum: [SHAPER_MODEL_ID] },
+            productRead: { type: 'OBJECT', required: ['verificationNeed', 'purchaseType', 'infoLocation', 'anglesSupplied', 'notes'], properties: {
+                verificationNeed: { type: 'STRING', enum: ['low', 'medium', 'high'] },
+                purchaseType: { type: 'STRING', enum: ['repeat', 'one-off'] },
+                infoLocation: { type: 'STRING', enum: ['packaging', 'listing', 'both'] },
+                anglesSupplied: { type: 'INTEGER' }, notes: { type: 'STRING' }
+            } },
+            batchTone: { type: 'OBJECT', required: ['character', 'palette', 'mood', 'finish'], properties: {
+                character: { type: 'STRING' }, palette: { type: 'STRING' }, mood: { type: 'STRING' }, finish: { type: 'STRING' }
+            } },
+            resolvedImageCount: { type: 'INTEGER', minimum: template.minImageCount, maximum: template.maxImageCount },
+            countRationale: { type: 'STRING' },
+            slots: { type: 'ARRAY', items: { type: 'OBJECT', required: ['index', 'role', 'direction', 'differentiator', 'sceneRationale', 'sceneSource', 'copyPlacement', 'derivedFrom'], properties: {
+                index: { type: 'INTEGER' }, role: { type: 'STRING', enum: Array.from(SHAPER_ROLES) },
+                direction: { type: 'STRING' }, differentiator: { type: 'STRING' }, sceneRationale: { type: 'STRING' },
+                sceneSource: { type: 'STRING', enum: ['shaper', 'operator'] },
+                copyPlacement: { type: 'STRING', enum: ['none', 'model-rendered', 'reserve-overlay-area'] },
+                derivedFrom: { type: 'STRING', enum: ['open', 'platform-rule', 'operator'] }
+            } } }
+        }
+    };
+    responseSchema.required.push('planFormatVersion', 'id', 'planSource', 'shapedAt', 'model');
+    return { contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', responseSchema, responseModalities: ['TEXT'], maxOutputTokens: 8192 } };
+}
+
+async function shapeBatch() {
+    const template = PLATFORM_TEMPLATES[state.platform];
+    if (state.shaperPlan) return state.shaperPlan;
+    let plan;
+    try {
+        if (!state.authReady) throw new Error('Shaper authentication unavailable');
+        const response = await fetch('/api/shape', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildShaperPayload(template)) });
+        if (!response.ok) throw new Error(`Shaper request failed (${response.status})`);
+        const body = await response.json();
+        const text = body?.candidates?.[0]?.content?.parts?.find(part => part.text)?.text || body?.text || body;
+        plan = validateShaperPlan(text, template);
+    } catch (error) {
+        console.warn('Shaper unavailable; using fallback plan:', error.message);
+        plan = buildFallbackPlan(template);
+    }
+    if (!state.imageCountTouched && plan.planSource === 'shaper') {
+        state.imageCount = plan.resolvedImageCount;
+        const countControl = document.getElementById('image-count');
+        if (countControl) countControl.value = String(state.imageCount);
+    }
+    state.shaperPlan = plan;
+    return plan;
 }
 
 function describeReferences(referenceImages) {
@@ -530,7 +786,9 @@ function describeReferences(referenceImages) {
 function buildPromptRecord(imageIndex) {
     const template = PLATFORM_TEMPLATES[state.platform];
     const category = CATEGORY_PRESETS[state.category];
-    const purpose = template.imagePurposes[imageIndex] || `Additional product view ${imageIndex + 1}`;
+    const plan = state.shaperPlan || (state.shaperPlan = buildFallbackPlan(template));
+    const slot = plan.slots[imageIndex] || buildFallbackPlan(template).slots[imageIndex];
+    const purpose = slot?.role || roleForPurpose(template.imagePurposes[imageIndex], imageIndex);
     const platformRule = template.slotRules[imageIndex]
         || 'Create a useful additional product view with a new composition that fits the shared batch tone.';
     const constraints = getActiveConstraints(template);
@@ -543,8 +801,8 @@ function buildPromptRecord(imageIndex) {
 
     const sections = [
         `Create a new ${template.name} eCommerce product photograph using the attached product photos as identity references.`,
-        `IMAGE ${imageIndex + 1} OF ${state.imageCount}\nPurpose: ${purpose}`,
-        `PLATFORM AND SLOT REQUIREMENTS\n${platformRule}\nShared tone: ${template.tone}`,
+        `IMAGE ${imageIndex + 1} OF ${state.imageCount}\nPurpose: ${purpose}\nShaper direction: ${slot?.direction || ''}\nDifferentiator: ${slot?.differentiator || ''}\nScene rationale: ${slot?.sceneRationale || ''}`,
+        `PLATFORM AND SLOT REQUIREMENTS\n${platformRule}\nIf Shaper direction conflicts with this platform rule, the platform rule wins.\nShared tone: ${JSON.stringify(plan.batchTone || template.tone)}`,
         `PRODUCT IDENTITY - MUST PRESERVE\nProduct name: ${state.productName.trim()}\nVariant: ${state.productVariant.trim() || 'Use the exact variant shown in the product photos.'}\nTreat every attached product photo as another view of the same product. Preserve its geometry, proportions, colors, materials, packaging, visible labels, logos, quantity, and included components. Do not redesign or replace the product.\nCategory guardrail: ${category.guidance}`
     ];
 
@@ -569,6 +827,14 @@ function buildPromptRecord(imageIndex) {
         sections.push(`VISUAL REFERENCES\n${referenceRelationships.map((reference, index) => `Reference ${index + 1} (${reference.name}): ${reference.instruction}.`).join('\n')}\nMaintain a related design tone while creating an original scene and composition for this product.`);
     }
 
+    if (state.imageCount > 1) {
+        const siblingSlots = plan.slots
+            .filter((_, index) => index !== imageIndex)
+            .map(sibling => `- ${sibling.role}: ${sibling.differentiator}`)
+            .join('\n');
+        sections.push(`AVOID DUPLICATING SIBLING SLOTS\nThis batch contains ${state.imageCount} distinct images. Do not repeat or closely mimic the composition, angle, or concept planned for these sibling slots:\n${siblingSlots}\n\nYour differentiator for this slot: "${slot.differentiator}"`);
+    }
+
     if (copyPlan.modelRenderedText.length > 0) {
         sections.push(`MODEL-RENDERED TEXT\nRender only this supplied short headline, exactly as quoted: "${copyPlan.modelRenderedText[0].value}". Make it legible and appropriate to the batch tone. Do not add other promotional wording.`);
     }
@@ -581,6 +847,7 @@ function buildPromptRecord(imageIndex) {
 
     sections.push('CREATIVE FREEDOM\nChoose an original commercially useful composition, camera angle, lighting, props, and scene for every detail not constrained above. Keep this batch in one design tone, but do not repeat or copy the same design.');
     sections.push('ACCURACY\nUse only supplied facts. Do not invent measurements, ingredients, certifications, ratings, discounts, comparisons, accessories, or product capabilities. The final image must look like real, polished product photography.');
+    sections.push('OUTPUT CONTRACT\nReturn exactly one final image for this slot. Do not create a collage, contact sheet, or alternate variation.');
 
     return {
         id: generateId('prompt'),
@@ -589,6 +856,8 @@ function buildPromptRecord(imageIndex) {
         promptFormatVersion: PROMPT_FORMAT_VERSION,
         platform: state.platform,
         category: state.category,
+        shaperPlanId: plan.id,
+        planSource: plan.planSource,
         aspectRatio: template.aspectRatio,
         constraints,
         productAssets: assets.productImages.map((image, index) => ({
@@ -612,6 +881,72 @@ function compilePromptRecords() {
     );
 }
 
+function buildBatchPromptRecord(promptRecords) {
+    if (!promptRecords.length) throw new Error('Cannot build a batch prompt without prompt records.');
+
+    const splitSections = record => record.prompt.split(/\n\n+/);
+    const firstSections = splitSections(promptRecords[0]);
+    const sharedTone = firstSections
+        .find(section => section.startsWith('PLATFORM AND SLOT REQUIREMENTS'))
+        ?.split('\n')
+        .find(line => line.startsWith('Shared tone:'));
+    const isSlotSection = section => (
+        section.startsWith('IMAGE ')
+        || section.startsWith('PLATFORM AND SLOT REQUIREMENTS')
+        || section.startsWith('MODEL-RENDERED TEXT')
+        || section.startsWith('TEXT TO ADD AFTER GENERATION')
+        || section.startsWith('TEXT HANDLING')
+        || section.startsWith('AVOID DUPLICATING SIBLING SLOTS')
+        || section.startsWith('OUTPUT CONTRACT')
+    );
+    const sharedSections = firstSections.filter(section => !isSlotSection(section));
+    if (sharedTone) sharedSections.splice(1, 0, sharedTone);
+
+    const slotBlocks = promptRecords.map(record => {
+        const sections = splitSections(record);
+        const imageSection = sections.find(section => section.startsWith('IMAGE '));
+        const platformSection = sections.find(section => section.startsWith('PLATFORM AND SLOT REQUIREMENTS'));
+        const slotRequirements = platformSection
+            ?.split('\n')
+            .filter(line => !line.startsWith('Shared tone:'))
+            .join('\n');
+        const textSections = sections.filter(section => (
+            section.startsWith('MODEL-RENDERED TEXT')
+            || section.startsWith('TEXT TO ADD AFTER GENERATION')
+            || section.startsWith('TEXT HANDLING')
+            || section.startsWith('AVOID DUPLICATING SIBLING SLOTS')
+        ));
+
+        return [
+            `SLOT ${record.index}`,
+            imageSection,
+            slotRequirements,
+            ...textSections
+        ].filter(Boolean).join('\n\n');
+    });
+    const count = promptRecords.length;
+    const outputContract = [
+        'OUTPUT CONTRACT',
+        `Return exactly ${count} separate images, one for each numbered slot.`,
+        'Return the images in slot order.',
+        'For each slot, emit one separate image part; never combine slots into a collage.',
+        'Keep one shared design tone across the batch, but use a distinct composition for every slot and do not repeat a composition.'
+    ].join('\n');
+
+    return {
+        promptIds: promptRecords.map(record => record.id),
+        aspectRatio: promptRecords[0].aspectRatio,
+        referenceRelationships: promptRecords[0].referenceRelationships,
+        prompt: [
+            'SHARED BATCH CONTEXT',
+            ...sharedSections,
+            'NUMBERED IMAGE SLOTS',
+            ...slotBlocks,
+            outputContract
+        ].join('\n\n')
+    };
+}
+
 function validateBatchInputs({ requireAuth = false } = {}) {
     if (requireAuth && !state.authReady) {
         alert(uiText('alert.auth', {}, 'Application Default Credentials are not configured on the server.'));
@@ -631,46 +966,194 @@ function validateBatchInputs({ requireAuth = false } = {}) {
     return true;
 }
 
-function renderPromptPreview(promptRecords, selectedIndex = 0) {
-    const record = promptRecords[selectedIndex];
+function elapsedTaskText(startedAt) {
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    const minutes = Math.floor(elapsedSeconds / 60);
+    const seconds = elapsedSeconds % 60;
+    const time = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+    return uiText('task.elapsed', { time }, `${time} elapsed`);
+}
+
+function renderActiveTask() {
+    const status = document.getElementById('task-status');
+    if (!activeTask) {
+        if (status) status.hidden = true;
+        return;
+    }
+
+    if (status) status.hidden = false;
+    const title = document.getElementById('task-status-title');
+    const detail = document.getElementById('task-status-detail');
+    const elapsed = elapsedTaskText(activeTask.startedAt);
+    if (title) title.textContent = uiText(activeTask.titleKey, {}, activeTask.titleFallback);
+    if (detail) detail.textContent = uiText(activeTask.detailKey, {}, activeTask.detailFallback);
+    const elapsedNode = document.getElementById('task-status-elapsed');
+    if (elapsedNode) elapsedNode.textContent = elapsed;
+    const previewElapsed = document.getElementById('prompt-preview-loading-elapsed');
+    if (previewElapsed) previewElapsed.textContent = elapsed;
+    const busyButton = document.getElementById(activeTask.type === 'preview' ? 'preview-prompts-btn' : 'generate-btn');
+    if (busyButton) {
+        busyButton.textContent = activeTask.type === 'preview'
+            ? uiText('prompt.previewing', {}, 'Building preview...')
+            : uiText('generation.generating', {}, 'Generating...');
+    }
+}
+
+function setActiveTaskPhase(phase) {
+    if (!activeTask) return;
+    if (phase === 'generating') {
+        activeTask.titleKey = 'task.generatingTitle';
+        activeTask.titleFallback = 'Gemini is generating your images';
+        activeTask.detailKey = 'task.generatingDetail';
+        activeTask.detailFallback = 'Images are generated from their individual slot prompts, two at a time. This can take several minutes; keep this tab open.';
+    } else {
+        activeTask.titleKey = 'task.planningTitle';
+        activeTask.titleFallback = 'Gemini 3.5 is building your prompt plan';
+        activeTask.detailKey = 'task.planningDetail';
+        activeTask.detailFallback = 'Analyzing product photos and requirements. This can take up to a minute.';
+    }
+    renderActiveTask();
+}
+
+function beginActiveTask(type) {
+    if (activeTask) return false;
+    activeTask = { type, startedAt: Date.now(), timer: null };
+    setActiveTaskPhase('planning');
+
+    const previewButton = document.getElementById('preview-prompts-btn');
+    const generateButton = document.getElementById('generate-btn');
+    [previewButton, generateButton].forEach(button => {
+        if (!button) return;
+        button.disabled = true;
+        if (button.dataset) button.dataset.taskLock = 'true';
+    });
+    const busyButton = type === 'preview' ? previewButton : generateButton;
+    if (busyButton?.dataset) busyButton.dataset.busy = 'true';
+    if (typeof setInterval === 'function') {
+        activeTask.timer = setInterval(renderActiveTask, 1000);
+    }
+    renderActiveTask();
+    return true;
+}
+
+function finishActiveTask() {
+    if (!activeTask) return;
+    if (activeTask.timer && typeof clearInterval === 'function') clearInterval(activeTask.timer);
+    activeTask = null;
+    const status = document.getElementById('task-status');
+    if (status) status.hidden = true;
+
+    const previewButton = document.getElementById('preview-prompts-btn');
+    const generateButton = document.getElementById('generate-btn');
+    [previewButton, generateButton].forEach(button => {
+        if (!button) return;
+        if (button.dataset) {
+            button.dataset.taskLock = 'false';
+            button.dataset.busy = 'false';
+        }
+    });
+    if (previewButton) previewButton.textContent = uiText('actions.preview', {}, 'Preview prompts');
+    if (generateButton) generateButton.textContent = uiText('actions.generate', {}, 'Generate batch');
+
+    if (typeof window !== 'undefined' && window.updateWorkbench) {
+        window.updateWorkbench();
+    } else {
+        if (previewButton) previewButton.disabled = false;
+        if (generateButton) generateButton.disabled = false;
+    }
+}
+
+function setPromptPreviewLoading(loading) {
+    const dialog = document.getElementById('prompt-preview-dialog');
+    const loadingView = document.getElementById('prompt-preview-loading');
+    const readyView = document.getElementById('prompt-preview-ready');
+    if (dialog?.setAttribute) dialog.setAttribute('aria-busy', String(loading));
+    if (loadingView) loadingView.hidden = !loading;
+    if (readyView) readyView.hidden = loading;
+    ['copy-prompt-preview', 'regenerate-plan-btn', 'generate-from-preview-btn', 'done-prompt-preview'].forEach(id => {
+        const button = document.getElementById(id);
+        if (button) button.disabled = loading;
+    });
+}
+
+function renderGenerationPlaceholders(count) {
+    const container = document.getElementById('results-container');
+    if (!container) return;
+    container.innerHTML = Array.from({ length: count }, (_, index) => `
+        <div class="result-item generation-placeholder" data-slot-index="${index + 1}">
+            <h3>${escapeHtml(uiText('generation.pendingImage', { index: index + 1 }, `Image ${index + 1}`))}</h3>
+            <div class="generation-placeholder-visual"><span class="spinner" aria-hidden="true"></span></div>
+            <p class="placeholder-status">${escapeHtml(uiText('generation.queued', {}, 'Queued'))}</p>
+        </div>
+    `).join('');
+}
+
+function renderPromptPreview(promptRecords, selectedIndex = 'batch', batchRecord = buildBatchPromptRecord(promptRecords)) {
+    const record = selectedIndex === 'batch' ? batchRecord : promptRecords[selectedIndex];
     const assets = getSelectedAssets();
     document.getElementById('prompt-preview-content').textContent = record.prompt;
     document.getElementById('prompt-preview-model').textContent = MODEL_ID;
-    document.getElementById('prompt-preview-output').textContent = `${record.aspectRatio}, PNG, 2K`;
+    document.getElementById('prompt-preview-output').textContent = `${record.aspectRatio}, PNG, ${IMAGE_SIZE}`;
     document.getElementById('prompt-preview-assets').textContent = uiText('prompt.assets', {
         product: assets.productImages.length,
         reference: assets.referenceImages.length
     }, `${assets.productImages.length} product + ${assets.referenceImages.length} reference`);
 }
 
-function previewPrompts() {
-    if (!validateBatchInputs()) return;
+async function previewPrompts() {
+    if (!validateBatchInputs({ requireAuth: true })) return;
+    if (!beginActiveTask('preview')) return;
 
-    const promptRecords = compilePromptRecords();
     const dialog = document.getElementById('prompt-preview-dialog');
-    const select = document.getElementById('prompt-preview-select');
-    const template = PLATFORM_TEMPLATES[state.platform];
-    const category = CATEGORY_PRESETS[state.category];
-
-    select.innerHTML = '';
-    promptRecords.forEach((record, index) => {
-        const option = document.createElement('option');
-        option.value = String(index);
-        option.textContent = uiText('prompt.option', {
-            index: record.index,
-            purpose: localizedPurpose(record.purpose)
-        }, `Image ${record.index}: ${record.purpose}`);
-        select.appendChild(option);
-    });
-    select.value = '0';
-    select.onchange = () => renderPromptPreview(promptRecords, Number(select.value));
-    document.getElementById('prompt-preview-summary').textContent = uiText('prompt.summary', {
-        platform: localizedPlatform(state.platform),
-        category: localizedCategory(state.category),
-        count: promptRecords.length
-    }, `${template.name} / ${category.name} / ${promptRecords.length} prompts`);
-    renderPromptPreview(promptRecords);
+    setPromptPreviewLoading(true);
     dialog.showModal();
+
+    try {
+        const plan = await shapeBatch();
+        const promptRecords = compilePromptRecords();
+        const batchRecord = buildBatchPromptRecord(promptRecords);
+        const select = document.getElementById('prompt-preview-select');
+        const template = PLATFORM_TEMPLATES[state.platform];
+        const category = CATEGORY_PRESETS[state.category];
+
+        select.innerHTML = '';
+        const batchOption = document.createElement('option');
+        batchOption.value = 'batch';
+        batchOption.textContent = uiText('prompt.batch', {}, 'Combined batch prompt');
+        select.appendChild(batchOption);
+        promptRecords.forEach((record, index) => {
+            const option = document.createElement('option');
+            option.value = String(index);
+            option.textContent = uiText('prompt.option', {
+                index: record.index,
+                purpose: localizedPurpose(record.purpose)
+            }, `Image ${record.index}: ${record.purpose}`);
+            select.appendChild(option);
+        });
+        select.value = 'batch';
+        select.onchange = () => renderPromptPreview(
+            promptRecords,
+            select.value === 'batch' ? 'batch' : Number(select.value),
+            batchRecord
+        );
+        document.getElementById('prompt-preview-summary').textContent = uiText('prompt.summary', {
+            platform: localizedPlatform(state.platform),
+            category: localizedCategory(state.category),
+            count: promptRecords.length
+        }, `${template.name} / ${category.name} / ${promptRecords.length} prompts`);
+        const planSummary = document.getElementById('prompt-preview-plan');
+        if (planSummary) {
+            planSummary.textContent = `${plan.planSource}: ${plan.batchTone.character} / ${plan.batchTone.mood} | ${plan.slots.map(slot => slot.role).join(', ')}`;
+        }
+        renderPromptPreview(promptRecords, 'batch', batchRecord);
+        setPromptPreviewLoading(false);
+    } catch (error) {
+        console.error('Prompt preview failed:', error);
+        dialog.close();
+        alert(uiText('alert.previewFailed', {}, 'Could not build the prompt preview. Please try again.'));
+    } finally {
+        finishActiveTask();
+    }
 }
 
 async function copyPreviewPrompt() {
@@ -707,6 +1190,81 @@ async function copyPreviewPrompt() {
     }
 }
 
+// Generate each slot from its own prompt record while limiting paid calls in flight.
+async function generateSlotsWithConcurrency(promptRecords, assets, concurrency = 2, onProgress = null) {
+    const results = new Array(promptRecords.length).fill(null);
+    const queue = promptRecords.map((record, index) => ({ record, index }));
+    const workerCount = Math.max(1, Math.min(Number.parseInt(concurrency, 10) || 1, queue.length || 1));
+    let completed = 0;
+    let progressChain = Promise.resolve();
+
+    const emitProgress = event => {
+        if (!onProgress) return Promise.resolve();
+        const snapshot = {
+            ...event,
+            completed,
+            total: promptRecords.length,
+            results: results.filter(Boolean).sort((a, b) => a.index - b.index)
+        };
+        progressChain = progressChain.then(() => onProgress(snapshot));
+        return progressChain;
+    };
+
+    const generateSlot = async ({ record, index }) => {
+        const startedAt = new Date().toISOString();
+        await emitProgress({ type: 'slot-start', index: record.index });
+        let progressEvent;
+
+        try {
+            const images = await callNanoBananaAPI(record, assets);
+            if (!images[0]) throw new Error(`Model returned no image for slot ${record.index}.`);
+
+            results[index] = {
+                promptId: record.id,
+                index: record.index,
+                purpose: record.purpose,
+                status: 'success',
+                model: MODEL_ID,
+                aspectRatio: record.aspectRatio,
+                imageSize: IMAGE_SIZE,
+                startedAt,
+                completedAt: new Date().toISOString(),
+                imageUrl: images[0].imageUrl,
+                apiMetadata: images[0].metadata
+            };
+            progressEvent = { type: 'slot-complete', index: record.index, result: results[index] };
+        } catch (error) {
+            results[index] = {
+                promptId: record.id,
+                index: record.index,
+                purpose: record.purpose,
+                status: 'failed',
+                model: MODEL_ID,
+                aspectRatio: record.aspectRatio,
+                imageSize: IMAGE_SIZE,
+                startedAt,
+                completedAt: new Date().toISOString(),
+                error: error.message
+            };
+            progressEvent = { type: 'slot-error', index: record.index, error: error.message, result: results[index] };
+        }
+
+        completed += 1;
+        await emitProgress(progressEvent);
+    };
+
+    const workers = Array.from({ length: workerCount }, async () => {
+        while (queue.length > 0) {
+            const item = queue.shift();
+            if (item) await generateSlot(item);
+        }
+    });
+
+    await Promise.all(workers);
+    await progressChain;
+    return results;
+}
+
 // ===== GENERATE PROMPTS =====
 async function generatePrompts() {
     const generateBtn = document.getElementById('generate-btn');
@@ -715,22 +1273,21 @@ async function generatePrompts() {
     const generationStatusText = document.getElementById('generation-status-text');
 
     if (!validateBatchInputs({ requireAuth: true })) return;
+    if (!beginActiveTask('generation')) return;
 
-    generateBtn.disabled = true;
-    if (generateBtn.dataset) generateBtn.dataset.busy = 'true';
-    generateBtn.textContent = uiText('generation.generating', {}, 'Generating...');
-
-    resultsContainer.innerHTML = '';
+    renderGenerationPlaceholders(state.imageCount);
     if (generationStatus) generationStatus.hidden = false;
-    if (generationStatusText) generationStatusText.textContent = uiText('generation.preparing', {}, 'Preparing batch prompts...');
+    if (generationStatusText) generationStatusText.textContent = uiText('generation.preparing', {}, 'Gemini 3.5 is building the prompt plan...');
+    document.getElementById('results-section')?.setAttribute('aria-busy', 'true');
     document.getElementById('results-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
     try {
         const now = new Date().toISOString();
+        const shaperPlan = await shapeBatch();
         const promptRecords = compilePromptRecords();
         const batch = {
             id: generateId('batch'),
-            recordVersion: 2,
+            recordVersion: 3,
             status: 'rendering',
             timestamp: now,
             updatedAt: now,
@@ -738,6 +1295,8 @@ async function generatePrompts() {
             category: state.category,
             imageCount: state.imageCount,
             inputs: buildInputSnapshot(),
+            shaperPlan,
+            planSource: shaperPlan.planSource,
             promptRecords,
             outputRecords: [],
             results: []
@@ -749,53 +1308,52 @@ async function generatePrompts() {
         await loadHistory();
 
         const assets = getSelectedAssets();
-        for (const promptRecord of promptRecords) {
-            if (generationStatusText) {
-                generationStatusText.textContent = uiText('generation.progress', {
-                    index: promptRecord.index,
-                    count: state.imageCount
-                }, `Generating image ${promptRecord.index} of ${state.imageCount}...`);
-            }
-
-            const startedAt = new Date().toISOString();
-            let outputRecord;
-            try {
-                const result = await callNanoBananaAPI(promptRecord, assets);
-                outputRecord = {
-                    promptId: promptRecord.id,
-                    index: promptRecord.index,
-                    purpose: promptRecord.purpose,
-                    status: 'success',
-                    model: MODEL_ID,
-                    aspectRatio: promptRecord.aspectRatio,
-                    imageSize: '2K',
-                    startedAt,
-                    completedAt: new Date().toISOString(),
-                    imageUrl: result.imageUrl,
-                    apiMetadata: result.metadata
-                };
-            } catch (error) {
-                outputRecord = {
-                    promptId: promptRecord.id,
-                    index: promptRecord.index,
-                    purpose: promptRecord.purpose,
-                    status: 'failed',
-                    model: MODEL_ID,
-                    aspectRatio: promptRecord.aspectRatio,
-                    imageSize: '2K',
-                    startedAt,
-                    completedAt: new Date().toISOString(),
-                    error: error.message
-                };
-            }
-
-            batch.outputRecords.push(outputRecord);
-            batch.results = buildLegacyResults(batch);
-            batch.updatedAt = new Date().toISOString();
-            await saveBatch(batch);
-            renderResults(getDisplayResults(batch));
+        setActiveTaskPhase('generating');
+        if (generationStatusText) {
+            generationStatusText.textContent = uiText('generation.starting', {
+                count: promptRecords.length
+            }, `Starting generation for ${promptRecords.length} images...`);
         }
 
+        const onProgress = async event => {
+            const placeholder = document.querySelector?.(`.generation-placeholder[data-slot-index="${event.index}"]`);
+            if (event.type === 'slot-start' && placeholder) {
+                placeholder.classList.add('active');
+                const status = placeholder.querySelector?.('.placeholder-status');
+                if (status) status.textContent = uiText('generation.slotGenerating', {}, 'Generating...');
+            }
+
+            if (event.type === 'slot-complete' || event.type === 'slot-error') {
+                if (generationStatusText) {
+                    generationStatusText.textContent = uiText('generation.progress', {
+                        completed: event.completed,
+                        total: event.total
+                    }, `Finished ${event.completed} of ${event.total} images...`);
+                }
+                if (event.type === 'slot-error') console.warn(`Slot ${event.index} failed:`, event.error);
+
+                if (placeholder) {
+                    placeholder.classList.remove('active');
+                    placeholder.classList.add(event.type === 'slot-complete' ? 'completed' : 'failed');
+                    const status = placeholder.querySelector?.('.placeholder-status');
+                    if (status) {
+                        status.textContent = event.type === 'slot-complete'
+                            ? uiText('generation.complete', {}, 'Complete')
+                            : uiText('generation.slotFailed', {}, 'Failed');
+                    }
+                }
+
+                batch.outputRecords = event.results;
+                batch.results = buildLegacyResults(batch);
+                batch.updatedAt = new Date().toISOString();
+                await saveBatch(batch);
+                state.currentBatch = batch;
+            }
+        };
+
+        batch.outputRecords = await generateSlotsWithConcurrency(promptRecords, assets, 2, onProgress);
+
+        batch.results = buildLegacyResults(batch);
         batch.status = batch.outputRecords.some(output => output.status === 'failed')
             ? 'completed-with-errors'
             : 'completed';
@@ -812,13 +1370,8 @@ async function generatePrompts() {
         resultsContainer.innerHTML = `<div class="empty-state"><p>${escapeHtml(uiText('results.failed', { error: error.message }, `Generation failed: ${error.message}`))}</p></div>`;
     } finally {
         if (generationStatus) generationStatus.hidden = true;
-        if (generateBtn.dataset) generateBtn.dataset.busy = 'false';
-        generateBtn.textContent = uiText('actions.generate', {}, 'Generate batch');
-        if (typeof window !== 'undefined' && window.updateWorkbench) {
-            window.updateWorkbench();
-        } else {
-            generateBtn.disabled = false;
-        }
+        document.getElementById('results-section')?.setAttribute('aria-busy', 'false');
+        finishActiveTask();
     }
 }
 
@@ -860,9 +1413,10 @@ async function callNanoBananaAPI(promptRecord, assets) {
             contents: [{ role: 'user', parts }],
             generationConfig: {
                 responseModalities: ['TEXT', 'IMAGE'],
+                maxOutputTokens: 32768,
                 imageConfig: {
                     aspectRatio: promptRecord.aspectRatio,
-                    imageSize: '2K'
+                    imageSize: IMAGE_SIZE
                 }
             }
         };
@@ -884,10 +1438,23 @@ async function callNanoBananaAPI(promptRecord, assets) {
         const result = await response.json();
         const candidate = result.candidates?.[0];
         const responseParts = candidate?.content?.parts || [];
-        const imagePart = responseParts.find(part => part.inlineData?.data || part.inline_data?.data);
-        const inlineData = imagePart?.inlineData || imagePart?.inline_data;
+        const metadata = {
+            model: MODEL_ID,
+            status: candidate.finishReason,
+            text: responseParts.find(part => part.text)?.text || '',
+            usage: result.usageMetadata
+        };
+        const images = responseParts
+            .filter(part => part.inlineData?.data || part.inline_data?.data)
+            .map(part => {
+                const inlineData = part.inlineData || part.inline_data;
+                return {
+                    imageUrl: `data:${inlineData.mimeType || inlineData.mime_type || 'image/png'};base64,${inlineData.data}`,
+                    metadata
+                };
+            });
 
-        if (!inlineData?.data) {
+        if (images.length === 0) {
             const refusal = responseParts.find(part => part.text)?.text;
             const blockReason = result.promptFeedback?.blockReason;
             throw new Error(
@@ -897,15 +1464,7 @@ async function callNanoBananaAPI(promptRecord, assets) {
             );
         }
 
-        return {
-            imageUrl: `data:${inlineData.mimeType || inlineData.mime_type || 'image/png'};base64,${inlineData.data}`,
-            metadata: {
-                model: MODEL_ID,
-                status: candidate.finishReason,
-                text: responseParts.find(part => part.text)?.text || '',
-                usage: result.usageMetadata
-            }
-        };
+        return images;
     } catch (error) {
         console.error('Nano Banana API error:', error);
         throw error;
@@ -919,6 +1478,8 @@ function buildInputSnapshot() {
         category: state.category,
         categoryFacts: state.categoryFacts,
         categoryPreference: state.categoryPreference,
+        season: state.season,
+        promotion: state.promotion,
         productImages: state.productImages,
         referenceImages: state.referenceImages,
         constraints: state.constraints,
@@ -958,6 +1519,13 @@ function getDisplayResults(batch) {
 function renderResults(results) {
     const container = document.getElementById('results-container');
     container.innerHTML = '';
+
+    if (state.currentBatch?.planSource === 'fallback') {
+        const notice = document.createElement('p');
+        notice.className = 'shaper-notice';
+        notice.textContent = uiText('results.shaperFallback', {}, 'Shaper was unavailable. This batch uses the platform fallback plan.');
+        container.appendChild(notice);
+    }
 
     if (results.length === 0) {
         container.innerHTML = `<div class="empty-state"><p>${escapeHtml(uiText('results.noOutputs', {}, 'This batch has no generated outputs yet.'))}</p></div>`;
@@ -1038,6 +1606,10 @@ function loadBatch(batch) {
     state.referenceImages = batch.inputs.referenceImages || [];
     state.constraints = batch.inputs.constraints || {};
     state.batchDirection = batch.inputs.batchDirection || '';
+    state.season = batch.inputs.season || '';
+    state.promotion = batch.inputs.promotion || '';
+    state.shaperPlan = batch.shaperPlan || null;
+    state.imageCountTouched = true;
     state.currentBatch = batch;
 
     // Update UI
@@ -1049,6 +1621,8 @@ function loadBatch(batch) {
     document.getElementById('category-facts').value = state.categoryFacts;
     document.getElementById('category-preference').value = state.categoryPreference;
     document.getElementById('batch-direction').value = state.batchDirection;
+    document.getElementById('season').value = state.season;
+    document.getElementById('promotion').value = state.promotion;
 
     renderProductImages();
     renderReferenceImages();
@@ -1071,13 +1645,15 @@ async function saveDraft() {
 
     const batch = {
         id: state.currentBatch?.id || generateId('batch'),
-        recordVersion: 2,
+        recordVersion: 3,
         status: 'draft',
         timestamp: new Date().toISOString(),
         platform: state.platform,
         category: state.category,
         imageCount: state.imageCount,
         inputs: buildInputSnapshot(),
+        shaperPlan: state.shaperPlan,
+        planSource: state.shaperPlan?.planSource || 'fallback',
         promptRecords: state.currentBatch?.promptRecords || [],
         outputRecords: state.currentBatch?.outputRecords || [],
         results: state.currentBatch?.results || []
@@ -1112,6 +1688,7 @@ function updateExportButton() {
 
 function markInputsChanged() {
     state.currentBatch = null;
+    state.shaperPlan = null;
     updateExportButton();
 }
 
@@ -1120,7 +1697,7 @@ function exportCurrentBatch() {
     if (!batch?.outputRecords?.length) return;
 
     const exported = {
-        exportVersion: 1,
+        exportVersion: 2,
         exportedAt: new Date().toISOString(),
         batchId: batch.id,
         platform: batch.platform,
@@ -1128,6 +1705,8 @@ function exportCurrentBatch() {
         imageCount: batch.imageCount,
         model: MODEL_ID,
         promptFormatVersion: PROMPT_FORMAT_VERSION,
+        shaperPlan: batch.shaperPlan,
+        planSource: batch.planSource || batch.shaperPlan?.planSource || 'fallback',
         promptRecords: batch.promptRecords,
         outputRecords: batch.outputRecords
     };
@@ -1162,6 +1741,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('platform-select').addEventListener('change', (e) => {
         state.platform = e.target.value;
         state.imageCount = PLATFORM_TEMPLATES[state.platform].imageCount;
+        state.imageCountTouched = false;
         state.constraints = {}; // Reset constraints when platform changes
         document.getElementById('image-count').value = state.imageCount;
         markInputsChanged();
@@ -1171,6 +1751,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Image count change
     document.getElementById('image-count').addEventListener('change', (e) => {
         state.imageCount = parseInt(e.target.value);
+        state.imageCountTouched = true;
         markInputsChanged();
     });
 
@@ -1205,6 +1786,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         markInputsChanged();
     });
 
+    document.getElementById('season').addEventListener('input', (e) => {
+        state.season = e.target.value;
+        markInputsChanged();
+    });
+
+    document.getElementById('promotion').addEventListener('input', (e) => {
+        state.promotion = e.target.value;
+        markInputsChanged();
+    });
+
     // Generate button
     document.getElementById('generate-btn').addEventListener('click', generatePrompts);
     document.getElementById('preview-prompts-btn').addEventListener('click', previewPrompts);
@@ -1215,6 +1806,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('prompt-preview-dialog').close();
     });
     document.getElementById('copy-prompt-preview').addEventListener('click', copyPreviewPrompt);
+    document.getElementById('generate-from-preview-btn').addEventListener('click', () => {
+        document.getElementById('prompt-preview-dialog').close();
+        generatePrompts();
+    });
+    document.getElementById('regenerate-plan-btn').addEventListener('click', async () => {
+        markInputsChanged();
+        document.getElementById('prompt-preview-dialog').close();
+        await previewPrompts();
+    });
 
     // Save draft button
     document.getElementById('save-draft-btn').addEventListener('click', saveDraft);
@@ -1257,15 +1857,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         await loadHistory();
 
         const previewDialog = document.getElementById('prompt-preview-dialog');
-        if (previewDialog.open) {
+        if (previewDialog.open && activeTask?.type !== 'preview') {
             previewDialog.close();
             previewPrompts();
         }
 
-        const generateBtn = document.getElementById('generate-btn');
-        if (generateBtn.dataset.busy === 'true') {
-            generateBtn.textContent = uiText('generation.generating', {}, 'Generating...');
-        }
+        if (activeTask) renderActiveTask();
         if (typeof window !== 'undefined' && window.updateWorkbench) {
             window.updateWorkbench();
         }

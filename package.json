@@ -1,7 +1,7 @@
 {
-  "name": "bubstal-picaso-auth-service",
+  "name": "bubstal-picasso-auth-service",
   "version": "1.0.0",
-  "description": "Bubstal Picaso server using Google Application Default Credentials",
+  "description": "Bubstal Picasso server using Google Application Default Credentials",
   "main": "auth-service.js",
   "scripts": {
     "start": "node auth-service.js",

@@ -12,6 +12,7 @@ const auth = new GoogleAuth({
 });
 
 const MODEL_ID = process.env.GEMINI_MODEL_ID || 'gemini-3-pro-image';
+const SHAPER_MODEL_ID = process.env.SHAPER_MODEL_ID || 'gemini-3.5-flash';
 const LOCATION = process.env.GEMINI_LOCATION || 'global';
 
 // The multi-region "global" endpoint has no region prefix; regional endpoints do.
@@ -22,6 +23,14 @@ function buildModelUrl(projectId) {
 
     return `https://${host}/v1/projects/${projectId}/locations/${LOCATION}`
         + `/publishers/google/models/${MODEL_ID}:generateContent`;
+}
+
+function buildShapeModelUrl(projectId) {
+    const host = LOCATION === 'global'
+        ? 'aiplatform.googleapis.com'
+        : `${LOCATION}-aiplatform.googleapis.com`;
+    return `https://${host}/v1/projects/${projectId}/locations/${LOCATION}`
+        + `/publishers/google/models/${SHAPER_MODEL_ID}:generateContent`;
 }
 
 async function resolveProjectId() {
@@ -47,7 +56,7 @@ app.get('/api/auth/status', async (req, res) => {
     try {
         await auth.getClient();
         const projectId = await resolveProjectId();
-        res.json({ authenticated: true, projectId, model: MODEL_ID, location: LOCATION });
+        res.json({ authenticated: true, projectId, model: MODEL_ID, shaperModel: SHAPER_MODEL_ID, location: LOCATION });
     } catch (error) {
         console.error('ADC configuration error:', error.message);
         res.status(503).json({
@@ -86,6 +95,29 @@ app.post('/api/generate', async (req, res) => {
     }
 });
 
+// The Shaper is a text planning call. Keep it separate from the image model
+// route so each model can be configured independently.
+app.post('/api/shape', async (req, res) => {
+    try {
+        const client = await auth.getClient();
+        const projectId = await resolveProjectId();
+        const response = await client.request({
+            url: buildShapeModelUrl(projectId),
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-goog-user-project': projectId
+            },
+            data: req.body
+        });
+        res.status(response.status).json(response.data);
+    } catch (error) {
+        const { status, message, code } = getGoogleApiError(error);
+        console.error('Shaper API request failed:', message);
+        res.status(status).json({ error: 'Shaper API request failed', message, code });
+    }
+});
+
 // Credential files live under auth/ for local development and must never be served.
 app.use('/auth', (req, res) => res.sendStatus(404));
 
@@ -95,7 +127,7 @@ app.use(express.static(path.join(__dirname)));
 if (require.main === module) {
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => {
-        console.log(`Bubstal Picaso running at http://localhost:${PORT}`);
+        console.log(`Bubstal Picasso running at http://localhost:${PORT}`);
     });
 }
 
