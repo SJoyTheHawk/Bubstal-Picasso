@@ -1,6 +1,6 @@
 # Bubstal Picasso
 
-Bubstal Picasso is a lightweight eCommerce product image generator. It compiles operator inputs into inspectable prompt records, then uses Nano Banana Pro to render a coordinated image batch.
+Bubstal Picasso is a lightweight eCommerce product image generator. It compiles operator inputs into inspectable prompt records, then uses a configurable image backend to render a coordinated image batch.
 
 The product is designed to reduce repetitive designer time and production cost. Operators identify what Must be preserved, add a small amount of Preferred direction, and leave all other creative decisions open to the model.
 
@@ -12,7 +12,7 @@ The product is designed to reduce repetitive designer time and production cost. 
 - Multiple product identity images plus style, layout, and color references
 - Same-tone, different-design direction across a batch
 - Gemini Shaper planning from product images, campaign context, and platform rules
-- Nano Banana Pro generation at PNG/1K with platform aspect ratios
+- Qwen Image Edit Plus generation at PNG/1K with platform aspect ratios
 - Prompt records saved before rendering and output records saved as each slot completes
 - Deterministic prompt-to-output mapping with isolated per-slot failures
 - IndexedDB drafts and history
@@ -21,6 +21,8 @@ The product is designed to reduce repetitive designer time and production cost. 
 
 ## Setup
 
+The default image backend is local Qwen Image Edit Plus (`Qwen/Qwen-Image-Edit-2509`). The Gemini Shaper remains enabled for planning, so the Node server still needs Google ADC. Set `IMAGE_GEN_BACKEND=gemini` to use the legacy Vertex image route instead.
+
 The server uses [Google Application Default Credentials (ADC)](https://docs.cloud.google.com/docs/authentication/application-default-credentials). Credentials and access tokens remain on the server.
 
 Install dependencies:
@@ -28,6 +30,8 @@ Install dependencies:
 ```bash
 npm install
 ```
+
+For Qwen on Ubuntu with an NVIDIA GPU, follow `QWEN_AWS_IMPLEMENTATION_GUIDE.md`. The service uses Python, CUDA, and approximately 20B-parameter Qwen weights; model files are kept out of git under `models/`.
 
 Configure one ADC source for local development:
 
@@ -80,7 +84,7 @@ Bubstal Picasso uses one coordinated plan with deterministic per-slot rendering:
 
 1. Gemini 3.5 Flash analyzes the inputs and creates one shared Shaper plan.
 2. The compiler creates one auditable prompt record for every image slot.
-3. Gemini 3 Pro Image generates each slot independently from that record.
+3. Qwen Image Edit Plus (or the configured Gemini fallback) generates each slot independently from that record.
 4. Two slot requests run concurrently to balance latency and rate-limit pressure.
 5. Every output is linked directly to its originating prompt ID.
 
@@ -92,7 +96,7 @@ for the API analysis.
 
 ## Text Policy
 
-Short operator-supplied promotional headlines may be rendered directly by Nano Banana. Accuracy-critical content such as prices, numeric claims, specifications, warnings, legal copy, and certifications is not typeset by the model. The generated scene reserves space for that text to be added by a later production step.
+Short operator-supplied promotional headlines may be rendered directly by the selected image backend. Accuracy-critical content such as prices, numeric claims, specifications, warnings, legal copy, and certifications is not typeset by the model. The generated scene reserves space for that text to be added by a later production step.
 
 ## Storage And Export
 

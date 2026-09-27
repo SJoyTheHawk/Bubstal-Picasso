@@ -4,3 +4,8 @@ node_modules/
 # Never commit long-lived Google Cloud credential keys.
 auth/*.json
 *.service-account.json
+
+# Local Qwen weights, cache, and Python environment.
+models/
+.venv-qwen/
+.env

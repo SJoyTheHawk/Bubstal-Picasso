@@ -1,4 +1,4 @@
-const MODEL_ID = 'gemini-3-pro-image';
+let MODEL_ID = 'gemini-3-pro-image';
 const SHAPER_MODEL_ID = 'gemini-3.5-flash';
 const PROMPT_FORMAT_VERSION = '3.0';
 const PLAN_FORMAT_VERSION = '1.0';
@@ -1450,7 +1450,7 @@ async function generatePrompts() {
     }
 }
 
-// Nano Banana Pro API - server-provided ADC token
+// Backend-neutral image request; the server selects Qwen or Gemini.
 async function callNanoBananaAPI(promptRecord, assets) {
     try {
         const toInlineData = (dataUrl) => {
@@ -1514,7 +1514,7 @@ async function callNanoBananaAPI(promptRecord, assets) {
         const candidate = result.candidates?.[0];
         const responseParts = candidate?.content?.parts || [];
         const metadata = {
-            model: MODEL_ID,
+            model: result.usageMetadata?.model || MODEL_ID,
             status: candidate.finishReason,
             text: responseParts.find(part => part.text)?.text || '',
             usage: result.usageMetadata
@@ -1534,14 +1534,14 @@ async function callNanoBananaAPI(promptRecord, assets) {
             const blockReason = result.promptFeedback?.blockReason;
             throw new Error(
                 refusal || blockReason
-                    ? `Gemini returned no image: ${refusal || blockReason}`
-                    : 'Gemini returned no generated image.'
+                    ? `The image backend returned no image: ${refusal || blockReason}`
+                    : 'The image backend returned no generated image.'
             );
         }
 
         return images;
     } catch (error) {
-        console.error('Nano Banana API error:', error);
+        console.error('Image generation API error:', error);
         throw error;
     }
 }
@@ -1900,6 +1900,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const response = await fetch('/api/auth/status');
         if (!response.ok) throw new Error('ADC is unavailable');
 
+        const status = await response.json();
+        MODEL_ID = status.model || MODEL_ID;
         state.authReady = true;
         authStatus.dataset.ready = 'true';
         authStatus.textContent = uiText('auth.ready', {}, 'Application Default Credentials ready');
