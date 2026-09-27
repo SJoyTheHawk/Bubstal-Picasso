@@ -87,9 +87,48 @@ Document what's MISSING for full research capability:
 ### Block 2: Hours 3-7 (Core Technical Work)
 **Goal**: Create ONE strong technical demonstration
 
-**Pick Option A or B based on what will be most impressive:**
+---
 
-#### Option A: Platform Comparison Demonstration (Recommended - 4 hours)
+## ⚠️ DECISION ANALYSIS: Option A vs Option B
+
+**Dean Profile: Anthony Fung (CUHK Social Science)**
+- **Background**: Communication studies, media & cultural studies, cultural policy
+- **Research Focus**: Cultural consumption, media narratives, audience studies, creative industries
+- **Key Insight**: NOT a technical person - he's a communication/cultural scholar
+
+### RECOMMENDATION: **Choose Option A - Platform Comparison Demonstration**
+
+**Why Option A is the RIGHT choice for Dean Fung:**
+
+✅ **Speaks his academic language**
+- Shows how platforms use different "visual communication strategies"
+- Demonstrates cultural/narrative differences in visual storytelling
+- Connects to his work on media narratives and cultural consumption
+- Frame as: "Different platforms have different visual languages to communicate with audiences"
+
+✅ **Showcases Picaso's actual purpose**
+- Demonstrates what Picaso was built to do
+- Shows working capability, not theoretical metrics
+- Lower technical risk (uses existing functionality)
+
+✅ **Better storytelling for non-technical audience**
+- Easy to understand: same product, different visual "stories"
+- Visual comparisons are intuitive
+- Can frame in communication/cultural terms, not just technical parameters
+
+**Why Option B is WRONG for this dean:**
+
+❌ Technical complexity (edge detection, entropy calculations, OpenCV)
+❌ Requires explaining computer vision algorithms to communication scholar
+❌ Doesn't showcase Picaso's communication-focused purpose
+❌ Higher technical risk with new code
+❌ Harder to connect to dean's research interests
+
+**DECISION: Go with Option A. Frame it as communication strategy analysis, not just technical demo.**
+
+---
+
+#### Option A: Platform Comparison Demonstration ⭐ RECOMMENDED FOR DEAN FUNG (4 hours)
 
 **Hour 3: Generate comparison set**
 - [ ] Select 3 product types:
