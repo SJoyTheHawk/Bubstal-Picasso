@@ -551,6 +551,23 @@ By end of 16 hours, you should have:
 
 ---
 
+## Phase 2.3 Research Revision Gate
+
+Before implementing Phase 2.3, use the research review in [`docs/PHASE_2_3_MARKETING_VALIDATION.md`](../docs/PHASE_2_3_MARKETING_VALIDATION.md) and the revised prompt text in [`docs/PROMPT_REFACTOR_IMPLEMENTATION_GUIDE.md`](../docs/PROMPT_REFACTOR_IMPLEMENTATION_GUIDE.md).
+
+The proposed guidance is a soft, testable planning aid for Shaper. It must not be presented as a proven rule that a market determines a color palette, text density, lifestyle level, or composition. Platform requirements and product evidence take priority, while exact scene details remain open to the image-generation model.
+
+For the dean discussion, describe Phase 2.3 as a research hypothesis layer:
+
+- Use platform rules as constraints only where the platform documents them, such as Amazon's main-image requirements.
+- Use product-image research to justify communication jobs such as verification, scale, usage, lifestyle, and feature explanation.
+- Treat market-specific color, density, and text patterns as hypotheses requiring controlled evaluation.
+- Compare unguided, original-guidance, and revised-guidance prompt arms with the same product references, roles, model, aspect ratio, copy, and seed policy.
+- Report product identity, slot-purpose adherence, visual diversity, unintended claims or props, cultural appropriateness, platform compliance, and copy accuracy by locale and category.
+- Do not implement the revised prompt until the review gate confirms that it preserves product identity and does not reduce useful model variation.
+
+**Preparation output:** one-page research summary, the revised Phase 2.3 prompt, and a benchmark matrix ready for implementation after review.
+
 ## Technical Presentation Role
 
 **During the meeting, your role is:**

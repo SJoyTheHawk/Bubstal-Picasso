@@ -679,6 +679,20 @@ function fallbackCopyPlacement(template, index, count) {
     return ids.length ? 'reserve-overlay-area' : (index === 0 && template.name !== 'Amazon.co.jp' ? 'model-rendered' : 'none');
 }
 
+function fallbackVisualElements(role, index, market) {
+    const isLifestyle = role === 'lifestyle' || role === 'usage';
+    const isDetail = role === 'material-detail' || role === 'feature-detail' || role === 'scale';
+    const isTaiwanOrChina = market === 'taiwan' || market === 'china';
+    return {
+        backgroundType: isLifestyle ? 'contextual-scene' : (index === 0 ? 'pure-white' : 'neutral-solid'),
+        productTreatment: isLifestyle ? 'in-context' : (isDetail ? 'angled-with-shadow' : 'centered-isolated'),
+        layoutComposition: isLifestyle ? 'environmental' : (index === 0 ? 'product-dominant' : 'balanced'),
+        colorPalette: isTaiwanOrChina && index > 0 ? 'vibrant-pop' : 'product-accurate',
+        lifestyleLevel: isLifestyle ? 'full-scene' : (isDetail ? 'subtle-props' : 'none'),
+        textStrategy: isTaiwanOrChina && index === 0 ? 'model-rendered-headline' : 'text-free'
+    };
+}
+
 function buildFallbackPlan(template = PLATFORM_TEMPLATES[state.platform]) {
     const count = Math.max(template.minImageCount, Math.min(state.imageCount || template.imageCount, template.maxImageCount));
     const outputLocale = /^[a-z]{2,3}-[A-Z]{2}$/.test(state.locale || '')
@@ -697,6 +711,7 @@ function buildFallbackPlan(template = PLATFORM_TEMPLATES[state.platform]) {
         outputLocale,
         instructionLanguage,
         copyItems: copyItems.map(item => ({ ...item })),
+        visualElements: fallbackVisualElements(roleForPurpose(template.imagePurposes[index], index), index, state.market),
         derivedFrom: 'platform-rule'
     }));
     return {
@@ -748,6 +763,18 @@ function validateShaperPlan(raw, template = PLATFORM_TEMPLATES[state.platform]) 
         }
         const fallbackSlot = fallback.slots[index] || fallback.slots[fallback.slots.length - 1];
         const role = SHAPER_ROLES.has(candidate.role) ? candidate.role : fallbackSlot.role;
+        const fallbackVisuals = fallbackVisualElements(role, index, state.market);
+        const candidateVisuals = candidate.visualElements && typeof candidate.visualElements === 'object'
+            ? candidate.visualElements
+            : {};
+        const visualElements = {
+            backgroundType: ['pure-white', 'neutral-solid', 'gradient', 'contextual-scene', 'lifestyle-environment'].includes(candidateVisuals.backgroundType) ? candidateVisuals.backgroundType : fallbackVisuals.backgroundType,
+            productTreatment: ['centered-isolated', 'angled-with-shadow', 'in-context', 'in-use'].includes(candidateVisuals.productTreatment) ? candidateVisuals.productTreatment : fallbackVisuals.productTreatment,
+            layoutComposition: ['product-dominant', 'balanced', 'environmental'].includes(candidateVisuals.layoutComposition) ? candidateVisuals.layoutComposition : fallbackVisuals.layoutComposition,
+            colorPalette: ['product-accurate', 'warm-enhanced', 'cool-enhanced', 'vibrant-pop'].includes(candidateVisuals.colorPalette) ? candidateVisuals.colorPalette : fallbackVisuals.colorPalette,
+            lifestyleLevel: ['none', 'subtle-props', 'full-scene', 'human-presence'].includes(candidateVisuals.lifestyleLevel) ? candidateVisuals.lifestyleLevel : fallbackVisuals.lifestyleLevel,
+            textStrategy: ['text-free', 'reserve-overlay-space', 'model-rendered-headline'].includes(candidateVisuals.textStrategy) ? candidateVisuals.textStrategy : fallbackVisuals.textStrategy
+        };
         const outputLocale = fallbackSlot.outputLocale;
         const instructionLanguage = fallbackSlot.instructionLanguage;
         const approvedCopy = new Map(fallbackSlot.copyItems.map(item => [item.id, item]));
@@ -767,6 +794,7 @@ function validateShaperPlan(raw, template = PLATFORM_TEMPLATES[state.platform]) 
             outputLocale,
             instructionLanguage,
             copyItems,
+            visualElements,
             derivedFrom: candidate.derivedFrom === 'platform-rule' ? 'platform-rule' : 'open'
         };
     });

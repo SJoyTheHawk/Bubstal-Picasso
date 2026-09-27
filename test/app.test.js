@@ -862,6 +862,52 @@ test('Shaper response schema requires visual elements for every slot', () => {
     ]);
 });
 
+test('validated plans preserve per-slot visual elements and repair missing values', () => {
+    const { api } = loadApp();
+    const state = baseState('shopee-tw', 'beauty');
+    state.imageCount = 2;
+    state.market = 'taiwan';
+    api.setState(state);
+
+    const plan = api.validateShaperPlan({
+        resolvedImageCount: 2,
+        slots: [
+            {
+                index: 1,
+                role: 'hero',
+                direction: 'Hero',
+                differentiator: 'Hero product view',
+                sceneRationale: 'Verification',
+                visualElements: {
+                    backgroundType: 'gradient',
+                    productTreatment: 'angled-with-shadow',
+                    layoutComposition: 'balanced',
+                    colorPalette: 'cool-enhanced',
+                    lifestyleLevel: 'subtle-props',
+                    textStrategy: 'reserve-overlay-space'
+                }
+            },
+            {
+                index: 2,
+                role: 'feature-detail',
+                direction: 'Detail',
+                differentiator: 'Feature detail',
+                sceneRationale: 'Evidence',
+                visualElements: { backgroundType: 'invalid' }
+            }
+        ]
+    }, api.PLATFORM_TEMPLATES['shopee-tw']);
+
+    assert.equal(plan.slots[0].visualElements.backgroundType, 'gradient');
+    assert.equal(plan.slots[0].visualElements.productTreatment, 'angled-with-shadow');
+    assert.equal(plan.slots[0].visualElements.layoutComposition, 'balanced');
+    assert.equal(plan.slots[0].visualElements.colorPalette, 'cool-enhanced');
+    assert.equal(plan.slots[0].visualElements.lifestyleLevel, 'subtle-props');
+    assert.equal(plan.slots[0].visualElements.textStrategy, 'reserve-overlay-space');
+    assert.equal(plan.slots[1].visualElements.backgroundType, 'neutral-solid');
+    assert.equal(plan.slots[1].visualElements.productTreatment, 'angled-with-shadow');
+});
+
 test('Shaper response schema carries the platform locale and copy contract per slot', () => {
     const { api } = loadApp();
     const state = baseState('shopee-tw', 'beauty');

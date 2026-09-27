@@ -444,50 +444,25 @@ Use the output locale for all visible short descriptions, slogans, badges, and l
 ].join('\n\n');
 ```
 
-### Step 2.3: Add Guidance for Visual Element Selection
+### Step 2.3: Add Evidence-Qualified Guidance for Visual Element Selection
+
+Before implementation, read the supporting review: [Phase 2.3 Marketing Validation and Revision](./PHASE_2_3_MARKETING_VALIDATION.md). The mappings below are soft, testable priors. Platform rules and product evidence take precedence, and the model retains freedom over exact visual decisions.
 
 **Location:** `buildShaperPayload()` prompt array, add before the "Author one shared batchTone" line
 
 ```javascript
 `VISUAL ELEMENT SELECTION GUIDANCE:
-For each slot, choose visualElements based on: role + buyer motivation + market preferences + platform rules.
+For each slot, choose visualElements to serve the slot's communication objective. Consider, in order: platform hard rules, product evidence and category, approved operator constraints and brand direction, buyer motivation, and market context.
 
-backgroundType:
-- pure-white: Amazon main image, high verification need, B2_Evidence
-- neutral-solid: Clean product focus, B1_Functional, B7_Expert  
-- gradient: Modern aesthetic, B4_Aesthetic, premium feel
-- contextual-scene: B3_Lifestyle, Japan market, usage roles
-- lifestyle-environment: High lifestyle identification, lifestyle role
+Market context is a soft prior and a testable hypothesis. Do not select a treatment solely because of a country, platform, or buyer-motivation label. Do not force one background, palette, layout, lifestyle level, or text strategy across the batch. Each slot may make a different choice.
 
-productTreatment:
-- centered-isolated: Hero shots, pure product focus, high verification
-- angled-with-shadow: Modern e-commerce, B4_Aesthetic
-- in-context: Lifestyle roles, B3_Lifestyle, contextual scenes
-- in-use: Usage demonstration, B1_Functional, B6_Convenience
+Use pure-white only when a platform rule or strong verification objective supports it. Use contextual-scene or lifestyle-environment when the slot needs to communicate usage, scale, compatibility, or lifestyle fit. Use human-presence only when a person materially explains fit, scale, or application and the product evidence supports the depiction. Use model-rendered-headline only when approved copy exists and the experiment explicitly permits model-rendered text; otherwise use text-free or reserve-overlay-space.
 
-layoutComposition:
-- product-dominant: Amazon style, hero roles, product-first
-- balanced: Mixed approach, moderate lifestyle preference
-- environmental: High lifestyle identification, B3_Lifestyle
+Treat gradient, warm-enhanced, cool-enhanced, and vibrant-pop as optional stylistic treatments. Choose them when the product, category, brand direction, supplied references, campaign, or tested market evidence supports them. Do not infer a color treatment from Japan, Taiwan, China, or any other market alone.
 
-colorPalette:
-- product-accurate: High verification need, B2_Evidence, B7_Expert
-- warm-enhanced: Japan market, lifestyle identification
-- cool-enhanced: Modern tech, professional
-- vibrant-pop: Taiwan/China markets, promotional, B5_Value
+Keep exact colors, materials, scene details, props, people, lighting, camera angle, and composition open to model judgment unless constrained by supplied facts, platform rules, or operator input. When evidence is weak, choose the least assumptive valid treatment that preserves product clarity.
 
-lifestyleLevel:
-- none: Pure product, B2_Evidence, B7_Expert, high verification
-- subtle-props: Balanced approach, scale reference
-- full-scene: B3_Lifestyle, high contextual preference
-- human-presence: Usage roles, convenience demonstration
-
-textStrategy:
-- text-free: Amazon style, Japan market, aesthetic focus
-- reserve-overlay-space: Taiwan/China markets, spec overlay slots
-- model-rendered-headline: First slot promotional, Shopee style
-
-Every slot must include complete visualElements.`,
+Every slot must include complete visualElements, and the visualElements labels must remain a concise description of the image job rather than a complete art direction.`,
 ```
 
 ---
