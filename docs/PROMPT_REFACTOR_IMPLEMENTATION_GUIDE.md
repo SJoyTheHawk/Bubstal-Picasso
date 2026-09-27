@@ -15,11 +15,105 @@ This guide provides step-by-step instructions for refactoring the Picasso prompt
 **Root Cause:**
 The prompt generation creates similar instructions for each slot, with only minor role-based differentiation. The system lacks the Market Cultural Context domain (Domain 4) that would provide market-specific visual language preferences.
 
+## Cross-Cutting Design: Platform Locale and Language Contract (NEW)
+
+Platform selection determines the default output locale. The locale controls visible user-facing copy, while the market profile controls visual and cultural preferences. Keep these as separate values: a platform can serve a language shared by several markets, and an operator may need to override the default locale for a cross-market test.
+
+There are three language decisions in every generated asset:
+
+1. **Visible copy language** — the language of short descriptions, slogans, badges, and labels shown in the image.
+2. **Visible copy content and location** — exact text values and where each item belongs. These are structured variables, not prose buried in a prompt.
+3. **Image instruction language** — the language used for scene, composition, product, and rendering instructions sent to the image model.
+
+Do not conflate these decisions. A Japanese slogan can be rendered while the visual instruction remains in English. A translated visual instruction does not authorize the model to translate a slogan or invent additional copy.
+
+### Locale and copy contract
+
+Add a platform-to-locale map and an explicit copy list. The locale must be overrideable for benchmarking and localization review.
+
+```javascript
+const PLATFORM_LOCALES = {
+    'amazon-jp': { locale: 'ja-JP', languageName: 'Japanese', direction: 'ltr' },
+    'rakuten': { locale: 'ja-JP', languageName: 'Japanese', direction: 'ltr' },
+    'shopee-tw': { locale: 'zh-TW', languageName: 'Traditional Chinese', direction: 'ltr' },
+    'qoo10-jp': { locale: 'ja-JP', languageName: 'Japanese', direction: 'ltr' }
+};
+
+function getLocaleFromPlatform(platformId) {
+    return PLATFORM_LOCALES[platformId]?.locale || 'en-US';
+}
+
+function localizeCopyItems(items, locale) {
+    return (items || []).map(item => ({
+        ...item,
+        locale,
+        text: item.textByLocale?.[locale] || item.text || ''
+    })).filter(item => item.text);
+}
+
+// Copy is data. Do not ask the image model to translate or invent these values.
+const copyItems = [
+    {
+        id: 'slogan',
+        kind: 'slogan', // slogan|short-description|badge|label
+        text: '日式生活品味',
+        textByLocale: { 'ja-JP': '日式生活品味', 'zh-TW': '日式生活品味' },
+        locale: 'ja-JP',
+        location: 'top-right', // top-left|top-center|top-right|bottom-left|bottom-center|bottom-right|custom
+        render: 'overlay' // overlay|model-rendered
+    }
+];
+```
+
+When copy is rendered after image generation, reserve the named location and use the application’s locale-aware font and line-breaking rules. When copy is rendered by the model, pass one exact string per item, require the declared locale, and prohibit any extra text. Store `sourceLocale`, `targetLocale`, and the final approved string so a reviewer can distinguish translation errors from image-generation errors. Keep brand names, regulated claims, ingredients, units, and legal text in their approved source form unless localization explicitly supplies a replacement.
+
+### Should the whole image prompt be translated?
+
+Use an English canonical visual prompt by default for both Nano Banana 2 and Qwen Image 2.1. Keep only the visible copy in the target locale. This gives both models the same semantic instruction, makes model-to-model comparisons meaningful, and avoids changing scene meaning, product constraints, and slot differentiation at the same time as language.
+
+Run a translated visual-prompt variant only as a benchmark arm when the language carries information that matters to the scene, such as an idiom, culturally specific object, or local usage convention. Preserve the same structured facts, references, seed policy, and copy strings in both arms. Select the translated arm per locale and model only when it improves the measured score without reducing product identity or copy fidelity.
+
+Current model guidance supports this conservative default:
+
+- **Nano Banana 2 (`gemini-3.1-flash-image`)** documents improved internationalized text rendering and lists best-performance locales including `en-US`, `de-DE`, `es-MX`, `fr-FR`, `hi-IN`, `id-ID`, `it-IT`, `ja-JP`, `ko-KR`, `pt-BR`, `ru-RU`, `ua-UA`, and `vi-VN`, plus `zh-CN`. `zh-TW` and `zh-HK` are not listed, so Traditional Chinese must be treated as an unverified case and measured separately. The same documentation recommends generating text first and then asking for an image when text accuracy matters. See the [Nano Banana 2 model page](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-image) and [image-generation guide](https://ai.google.dev/gemini-api/docs/image-generation).
+- **Qwen Image 2.1** documents improved typography and uses a Qwen3-VL 8B text encoder, but its official model card does not publish a complete language-support or per-language text-rendering table. Its official prompt-rewrite instructions keep Chinese descriptive prompts in Chinese and use English descriptive prompts for other languages, while requiring rendered text to follow the explicitly requested language. Treat Japanese and Traditional Chinese support as hypotheses until the benchmark confirms them. See the [Qwen Image 2.1 model card](https://github.com/QwenLM/Qwen-Image-2.1) and [official prompt-rewrite rules](https://github.com/QwenLM/Qwen-Image-2.1/blob/main/prompt_rewrite/prompts/system_prompt_edit.txt).
+
+Do not claim that a model supports a locale because it can understand a few words in that language. Record separate results for visual instruction following, OCR exact-match, text placement, and cultural appropriateness. Long slogans, multiple text blocks, uncommon characters, and mixed scripts are higher-risk cases. Use post-generation overlay for legally or commercially exact copy whenever the model arm fails the copy gate.
+
+There is no justified universal language penalty to apply in advance. A benchmark can drop for a particular locale when tokenization, translation ambiguity, script rendering, or text density changes the task. It can also improve when the localized instruction names a culturally specific scene more clearly. Treat the English prompt as the comparison baseline and select the prompt language from measured per-locale results.
+
+### Benchmark matrix and acceptance gates
+
+Prepare the same cases for each platform locale, model, and prompt-language arm:
+
+| Dimension | Required arms |
+|---|---|
+| Model | Nano Banana 2; Qwen Image 2.1 |
+| Locale | `ja-JP`; `zh-TW`; add every production locale before launch |
+| Visual prompt | Canonical English; target-language translation where available |
+| Copy path | Overlay; model-rendered exact text |
+| Content | Same product references, facts, slot role, aspect ratio, and approved copy |
+| Repeats | At least 5 fixed seeds per cell, or every seed supported by the provider |
+
+Score each cell separately. At minimum record: product identity, slot/composition adherence, visual diversity across siblings, OCR exact-match for every copy item, copy location, unintended text rate, locale and cultural review, latency, and cost. Report the mean with a confidence interval and the worst locale result; do not let an English result hide a Japanese or Traditional Chinese regression.
+
+Suggested release gates are: 100% exact-match for overlay copy; a model-rendered copy pass rate agreed with product for each locale; zero invented claims or extra promotional text; no material product-identity regression versus the English baseline; and no locale score below the minimum defined by the product owner. If a locale fails only the model-rendered-copy gate, keep the localized visual prompt if its visual score passes and switch that locale to overlay rendering.
+
+The implementation belongs in Phase 2 alongside the visual element fields. Phase 1 supplies the platform-to-locale default and `state.locale`; Phase 2 carries locale, copy, and instruction-language fields through the Shaper schema; Phase 3 validates them; Phase 4 injects them into each slot prompt; and the testing plan evaluates both English and localized instruction arms.
+
 ## Solution Architecture
 
-### Three-Layer Enhancement
+### Four-Layer Enhancement
 
 ```
+┌─────────────────────────────────────────────────────────────┐
+│ Layer 0: Platform Locale and Copy Contract (NEW)            │
+│ - Output locale resolved from platform                       │
+│ - Exact descriptions and slogans                             │
+│ - Copy location and render mode                              │
+│ - English or localized visual-prompt benchmark arm           │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
 ┌─────────────────────────────────────────────────────────────┐
 │ Layer 1: Market Cultural Context (NEW)                      │
 │ - Contextual imagery preference                              │
@@ -145,6 +239,9 @@ function getMarketFromPlatform(platformId) {
 let state = {
     platform: 'amazon-jp',
     market: 'japan', // NEW: Track market separately
+    locale: 'ja-JP', // NEW: Visible-copy locale; can be overridden for tests
+    instructionLanguage: 'en', // NEW: 'en' or 'localized' benchmark arm
+    copyItems: [], // NEW: approved localized text and locations
     imageCount: 7,
     category: 'beauty',
     // ... rest of state
@@ -161,6 +258,8 @@ let state = {
 document.getElementById('platform-select').addEventListener('change', (e) => {
     state.platform = e.target.value;
     state.market = getMarketFromPlatform(e.target.value); // NEW: Update market
+    state.locale = getLocaleFromPlatform(e.target.value); // NEW: Update output language
+    state.copyItems = localizeCopyItems(state.copyItems, state.locale); // NEW: Resolve text variables
     state.imageCount = PLATFORM_TEMPLATES[state.platform].imageCount;
     state.imageCountTouched = false;
     state.constraints = {};
@@ -172,11 +271,17 @@ document.getElementById('platform-select').addEventListener('change', (e) => {
 
 ---
 
-## Phase 2: Add Visual Element Specifications
+## Phase 2: Add Visual Element and Locale Specifications
+
+### Step 2.0: Add Platform Locale and Language Contract
+
+Implement the cross-cutting locale and copy contract above before extending the visual element schema. Add the platform locale lookup and `state.locale` assignment from Phase 1, then add `outputLocale`, `instructionLanguage`, and `copyItems` to each Shaper slot in Step 2.1. This keeps locale and visual specifications in the same plan object and gives later validation and prompt-building phases one source of truth.
 
 ### Step 2.1: Extend Shaper Schema
 
 **Location:** `buildShaperPayload()` function around line 722
+
+This is the main insertion point for the locale change: add `outputLocale`, `instructionLanguage`, and `copyItems` to every slot together with `visualElements`. The platform lookup in Phase 1 supplies their defaults; the Shaper plan makes them explicit and reviewable per slot.
 
 **Current schema (line 726-744) - ADD these fields to the slot schema:**
 
@@ -199,6 +304,17 @@ const schema = JSON.stringify({
         sceneRationale: '<why a scene or plain view is correct>',
         sceneSource: 'shaper|operator',
         copyPlacement: 'none|model-rendered|reserve-overlay-area',
+        outputLocale: '<BCP-47 locale, for example ja-JP or zh-TW>',
+        instructionLanguage: 'en',
+        copyItems: [{
+            id: '<stable id>',
+            kind: 'slogan|short-description|badge|label',
+            text: '<exact approved text>',
+            textByLocale: { '<locale>': '<approved localized text>' },
+            locale: '<BCP-47 locale>',
+            location: 'top-left|top-center|top-right|bottom-left|bottom-center|bottom-right|custom',
+            render: 'overlay|model-rendered'
+        }],
         derivedFrom: 'open|platform-rule|operator',
         // NEW FIELDS - Visual Element Specifications
         visualElements: {
@@ -226,7 +342,8 @@ const responseSchema = {
             items: {
                 type: 'OBJECT',
                 required: ['index', 'role', 'direction', 'differentiator', 'sceneRationale', 
-                          'sceneSource', 'copyPlacement', 'derivedFrom', 'visualElements'],
+                          'sceneSource', 'copyPlacement', 'outputLocale', 'instructionLanguage',
+                          'copyItems', 'derivedFrom', 'visualElements'],
                 properties: {
                     index: { type: 'INTEGER' },
                     role: { type: 'STRING', enum: Array.from(SHAPER_ROLES) },
@@ -235,6 +352,24 @@ const responseSchema = {
                     sceneRationale: { type: 'STRING' },
                     sceneSource: { type: 'STRING', enum: ['shaper', 'operator'] },
                     copyPlacement: { type: 'STRING', enum: ['none', 'model-rendered', 'reserve-overlay-area'] },
+                    outputLocale: { type: 'STRING' },
+                    instructionLanguage: { type: 'STRING', enum: ['en', 'localized'] },
+                    copyItems: {
+                        type: 'ARRAY',
+                        items: {
+                            type: 'OBJECT',
+                            required: ['id', 'kind', 'text', 'locale', 'location', 'render'],
+                            properties: {
+                                id: { type: 'STRING' },
+                                kind: { type: 'STRING', enum: ['slogan', 'short-description', 'badge', 'label'] },
+                                text: { type: 'STRING' },
+                                textByLocale: { type: 'OBJECT' },
+                                locale: { type: 'STRING' },
+                                location: { type: 'STRING' },
+                                render: { type: 'STRING', enum: ['overlay', 'model-rendered'] }
+                            }
+                        }
+                    },
                     derivedFrom: { type: 'STRING', enum: ['open', 'platform-rule', 'operator'] },
                     // NEW: Visual Elements
                     visualElements: {
@@ -299,6 +434,10 @@ Market visual preferences:
 Visual tendencies: ${JSON.stringify(MARKET_PROFILES[state.market].visualTendencies)}
 
 Use these market preferences to inform your visualElements choices per slot. High contextual preference → favor lifestyle-environment backgrounds. Low information density tolerance → favor text-free strategy. High lifestyle identification → use full-scene or human-presence where appropriate.`,
+    // NEW: Locale and copy contract
+    `LANGUAGE AND COPY CONTRACT:
+Output locale: ${state.locale}
+Use the output locale for all visible short descriptions, slogans, badges, and labels. Copy is supplied as exact approved values with an explicit location and render mode. Never translate, paraphrase, transliterate, or invent copy. Keep the visual instruction language as English unless this case is explicitly running the localized-prompt benchmark arm. For model-rendered copy, render only the supplied strings, exactly once each, in their declared locations. For overlay copy, reserve the named clean area and render no text.`,
     // ... rest of existing prompt instructions ...
     `Platform: ${template.name}; aspect ratio: ${template.aspectRatio}; ...`,
     // ... rest
@@ -399,6 +538,22 @@ const slots = Array.from({ length: targetCount }, (_, index) => {
             ? visualElements.textStrategy
             : fallbackVisualElements(role, index, state.market).textStrategy
     };
+
+    const outputLocale = /^[a-z]{2,3}-[A-Z]{2}$/.test(candidate.outputLocale || '')
+        ? candidate.outputLocale
+        : state.locale;
+    const instructionLanguage = candidate.instructionLanguage === 'localized' ? 'localized' : 'en';
+    const copyItems = Array.isArray(candidate.copyItems)
+        ? candidate.copyItems.filter(item => item && typeof item.text === 'string' && item.text.trim())
+            .map(item => ({
+                id: String(item.id || `copy-${index + 1}`),
+                kind: ['slogan', 'short-description', 'badge', 'label'].includes(item.kind) ? item.kind : 'label',
+                text: item.text.trim(),
+                locale: /^[a-z]{2,3}-[A-Z]{2}$/.test(item.locale || '') ? item.locale : outputLocale,
+                location: String(item.location || 'custom'),
+                render: item.render === 'model-rendered' ? 'model-rendered' : 'overlay'
+            }))
+        : [];
     
     return {
         index: index + 1,
@@ -410,6 +565,9 @@ const slots = Array.from({ length: targetCount }, (_, index) => {
         copyPlacement: ['none', 'model-rendered', 'reserve-overlay-area'].includes(candidate.copyPlacement) 
             ? candidate.copyPlacement 
             : fallbackSlot.copyPlacement,
+        outputLocale,
+        instructionLanguage,
+        copyItems,
         derivedFrom: candidate.derivedFrom === 'platform-rule' ? 'platform-rule' : 'open',
         visualElements: validatedVisualElements // NEW
     };
@@ -531,6 +689,9 @@ function fallbackVisualElements(role, index, marketId) {
 ```javascript
 const visualElements = slot?.visualElements || fallbackVisualElements(purpose, imageIndex, state.market);
 const market = MARKET_PROFILES[state.market];
+const outputLocale = slot?.outputLocale || state.locale;
+const instructionLanguage = slot?.instructionLanguage || 'en';
+const copyItems = Array.isArray(slot?.copyItems) ? slot.copyItems : [];
 
 // Build visual element instruction string
 const visualInstruction = buildVisualElementInstruction(visualElements, purpose, market);
@@ -542,6 +703,8 @@ const sections = [
 Purpose: ${purpose}
 Role: ${slot?.role || purpose}
 Differentiator: ${slot?.differentiator || `Distinct ${purpose} view`}
+Instruction language: ${instructionLanguage}
+Visible-copy locale: ${outputLocale}
 
 VISUAL SPECIFICATIONS:
 ${visualInstruction}`,
@@ -567,11 +730,11 @@ Category guardrail: ${category.guidance}`,
     // Sibling differentiation (shortened)
     state.imageCount > 1 ? `SIBLING DIFFERENTIATION\nThis batch has ${state.imageCount} images. Your differentiator: "${slot.differentiator}". Do not repeat compositions from other slots.` : '',
     
-    // Text handling based on copyPlan
-    copyPlan.modelRenderedText.length > 0 
-        ? `MODEL-RENDERED TEXT\nRender this headline exactly: "${copyPlan.modelRenderedText[0].value}". Make it legible and fit the batch tone.`
-        : copyPlan.overlayText.length > 0
-        ? `RESERVE OVERLAY AREA\nLeave one clean area for later text overlay:\n${copyPlan.overlayText.map(item => `${item.label}: ${item.value}`).join('\n')}`
+    // Text handling is explicit per copy item and locale
+    copyItems.some(item => item.render === 'model-rendered')
+        ? `MODEL-RENDERED TEXT\nRender only these exact strings in ${outputLocale}, once each, at the specified locations. Do not translate, paraphrase, transliterate, or add any other text.\n${copyItems.filter(item => item.render === 'model-rendered').map(item => `${item.id} (${item.kind}) at ${item.location}: "${item.text}"`).join('\n')}`
+        : copyItems.some(item => item.render === 'overlay')
+        ? `RESERVE OVERLAY AREAS\nRender no text. Leave clean areas at these locations for application overlay in ${outputLocale}:\n${copyItems.filter(item => item.render === 'overlay').map(item => `${item.id} (${item.kind}) at ${item.location}`).join('\n')}`
         : !isAmazonMain ? 'TEXT HANDLING\nDo not render prices, ratings, specifications, or promotional copy.' : '',
     
     'ACCURACY\nUse only supplied facts. Do not invent measurements, ingredients, certifications, ratings, discounts, or capabilities.',
@@ -658,6 +821,9 @@ const slots = Array.from({ length: count }, (_, index) => ({
     sceneRationale: 'Static platform guidance; use a plain product view unless the platform rule calls for context.',
     sceneSource: 'operator',
     copyPlacement: fallbackCopyPlacement(template, index, count),
+    outputLocale: state.locale,
+    instructionLanguage: 'en',
+    copyItems: state.copyItems || [],
     derivedFrom: 'platform-rule',
     visualElements: fallbackVisualElements(roleForPurpose(template.imagePurposes[index], index), index, state.market) // NEW
 }));
@@ -717,6 +883,23 @@ const slots = Array.from({ length: count }, (_, index) => ({
 - All slots have valid visualElements
 - Visual variety still present based on role + market
 
+### Test Case 5: Locale and copy variables
+
+**Input:**
+- Platform: Shopee TW (`locale: zh-TW`)
+- Product: Japanese lifestyle product
+- Approved copy: `夏日生活提案` as a slogan at `top-right`; `輕盈好收納` as a short description at `bottom-left`
+- Copy path: run once with `overlay`, once with `model-rendered`
+
+**Expected Output:**
+- All visible copy is Traditional Chinese and appears only at the declared locations.
+- The visual scene remains the same between copy paths and contains no extra slogans, prices, ratings, or invented claims.
+- Overlay output is checked for exact application-rendered strings; model-rendered output is checked with OCR and locale review.
+
+### Test Case 6: Prompt-language benchmark
+
+Run the same `ja-JP` and `zh-TW` cases with `instructionLanguage: en` and `instructionLanguage: localized` on both target models. Hold product references, slot plan, copy, aspect ratio, and seeds constant. A localized visual prompt is adopted only when its per-locale visual and copy scores meet the release gates above. A failure in model-rendered text routes that locale to overlay rendering without changing the visual prompt arm.
+
 ---
 
 ## Validation Checklist
@@ -726,6 +909,11 @@ Before considering implementation complete:
 - [ ] MARKET_PROFILES defined with all 4 markets
 - [ ] getMarketFromPlatform() function added
 - [ ] state.market tracked and updated
+- [ ] PLATFORM_LOCALES defined and state.locale updated from platform
+- [ ] Locale override is available for cross-market testing
+- [ ] Copy items carry exact text, locale, type, location, and render mode
+- [ ] English canonical visual prompt is the default for both image models
+- [ ] Localized visual prompt is a separately benchmarked arm
 - [ ] Visual element enums added to Shaper schema
 - [ ] responseSchema updated with visualElements
 - [ ] Market context added to Shaper prompt
@@ -739,6 +927,9 @@ Before considering implementation complete:
 - [ ] Test case 2 respects Taiwan market preferences
 - [ ] Test case 3 respects Japan market preferences
 - [ ] Test case 4 works without Shaper
+- [ ] Test case 5 passes copy locale, exact text, and location checks
+- [ ] Test case 6 reports per-model, per-locale, per-prompt-language results
+- [ ] Release gates prevent an aggregate score from hiding a locale regression
 
 ---
 

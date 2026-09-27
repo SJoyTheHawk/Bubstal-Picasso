@@ -26,11 +26,33 @@ function loadApp(overrides = {}) {
     });
     const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
     vm.runInContext(`${source}\n;globalThis.testApi = {\n` +
-        'PLATFORM_TEMPLATES, CATEGORY_PRESETS, SHAPER_ROLES, loadBuyerMotivationSkill, buildFallbackPlan, validateShaperPlan, buildShaperPayload, shapeBatch, buildPromptRecord, compilePromptRecords, buildBatchPromptRecord, getSelectedAssets, generatePrompts, previewPrompts, copyPreviewPrompt, ' +
+        'PLATFORM_TEMPLATES, CATEGORY_PRESETS, MARKET_PROFILES, getMarketFromPlatform, SHAPER_ROLES, loadBuyerMotivationSkill, buildFallbackPlan, validateShaperPlan, buildShaperPayload, shapeBatch, buildPromptRecord, compilePromptRecords, buildBatchPromptRecord, getSelectedAssets, generatePrompts, previewPrompts, copyPreviewPrompt, ' +
         'callNanoBananaAPI, generateSlotsWithConcurrency, exportCurrentBatch, setState(value) { state = value; }, getState() { return state; }\n' +
         '};', context);
     return { context, api: context.testApi };
 }
+
+test('market profiles provide cultural context and platform mappings', () => {
+    const { api } = loadApp();
+
+    assert.deepEqual(Object.keys(api.MARKET_PROFILES).sort(), ['china', 'hongkong', 'japan', 'taiwan']);
+    assert.equal(api.MARKET_PROFILES.japan.informationDensityTolerance, 'low');
+    assert.equal(api.MARKET_PROFILES.taiwan.promotionSensitivity, 'high');
+    assert.equal(api.MARKET_PROFILES.hongkong.trustEvidenceRequirement, 'high');
+    assert.equal(api.MARKET_PROFILES.china.lifestyleIdentification, 'high');
+    assert.equal(api.getMarketFromPlatform('amazon-jp'), 'japan');
+    assert.equal(api.getMarketFromPlatform('rakuten'), 'japan');
+    assert.equal(api.getMarketFromPlatform('shopee-tw'), 'taiwan');
+    assert.equal(api.getMarketFromPlatform('qoo10-jp'), 'japan');
+    assert.equal(api.getMarketFromPlatform('unknown-platform'), 'japan');
+});
+
+test('application state defaults to the Japan market', () => {
+    const { api } = loadApp();
+
+    assert.equal(api.getState().platform, 'amazon-jp');
+    assert.equal(api.getState().market, 'japan');
+});
 
 function baseState(platform = 'amazon-jp', category = 'beauty') {
     return {
@@ -784,6 +806,56 @@ test('Shaper response schema requires buyerMotivation in productRead', () => {
     assert.equal(schema.properties.productRead.properties.buyerMotivation.required.includes('confidence'), true);
     assert.equal(schema.properties.productRead.properties.buyerMotivation.properties.primary.type, 'STRING');
     assert.equal(schema.properties.productRead.properties.buyerMotivation.properties.confidence.type, 'NUMBER');
+});
+
+test('Shaper response schema requires visual elements for every slot', () => {
+    const { api } = loadApp();
+    api.setState(baseState('amazon-jp', 'home'));
+    const schema = api.buildShaperPayload(api.PLATFORM_TEMPLATES['amazon-jp']).generationConfig.responseSchema;
+    const slotSchema = schema.properties.slots.items;
+    const visualElements = slotSchema.properties.visualElements;
+
+    assert.equal(slotSchema.required.includes('visualElements'), true);
+    assert.deepEqual(Array.from(visualElements.required), [
+        'backgroundType', 'productTreatment', 'layoutComposition',
+        'colorPalette', 'lifestyleLevel', 'textStrategy'
+    ]);
+    assert.deepEqual(Array.from(visualElements.properties.backgroundType.enum), [
+        'pure-white', 'neutral-solid', 'gradient', 'contextual-scene', 'lifestyle-environment'
+    ]);
+    assert.deepEqual(Array.from(visualElements.properties.productTreatment.enum), [
+        'centered-isolated', 'angled-with-shadow', 'in-context', 'in-use'
+    ]);
+    assert.deepEqual(Array.from(visualElements.properties.layoutComposition.enum), [
+        'product-dominant', 'balanced', 'environmental'
+    ]);
+    assert.deepEqual(Array.from(visualElements.properties.colorPalette.enum), [
+        'product-accurate', 'warm-enhanced', 'cool-enhanced', 'vibrant-pop'
+    ]);
+    assert.deepEqual(Array.from(visualElements.properties.lifestyleLevel.enum), [
+        'none', 'subtle-props', 'full-scene', 'human-presence'
+    ]);
+    assert.deepEqual(Array.from(visualElements.properties.textStrategy.enum), [
+        'text-free', 'reserve-overlay-space', 'model-rendered-headline'
+    ]);
+});
+
+test('Shaper payload includes market context as soft per-slot guidance', () => {
+    const { api } = loadApp();
+    const state = baseState('shopee-tw', 'beauty');
+    state.market = 'taiwan';
+    api.setState(state);
+
+    const payload = api.buildShaperPayload(api.PLATFORM_TEMPLATES['shopee-tw']);
+    const promptText = payload.contents[0].parts[0].text;
+
+    assert.match(promptText, /MARKET CULTURAL CONTEXT: Taiwan Market/);
+    assert.match(promptText, /Contextual imagery preference: medium/);
+    assert.match(promptText, /Information density tolerance: high/);
+    assert.match(promptText, /Lifestyle identification: medium/);
+    assert.match(promptText, /soft priors/i);
+    assert.match(promptText, /Each slot may make a different visual choice/);
+    assert.match(promptText, /do not force one background, palette, layout, or text strategy across the batch/i);
 });
 
 test('prompt preview displays buyer motivation when present', async () => {

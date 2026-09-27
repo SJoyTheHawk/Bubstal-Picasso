@@ -166,6 +166,82 @@ const CATEGORY_PRESETS = {
     }
 };
 
+// Market Cultural Context profiles based on Domain 4 of the academic framework.
+// These are engineering priors for stimulus generation, not validated findings.
+const MARKET_PROFILES = {
+    japan: {
+        name: 'Japan Market',
+        contextualImageryPreference: 'high',
+        informationDensityTolerance: 'low',
+        trustEvidenceRequirement: 'medium',
+        socialProofSensitivity: 'low',
+        promotionSensitivity: 'low',
+        lifestyleIdentification: 'high',
+        visualTendencies: {
+            backgroundPreference: 'contextual scene or gradient',
+            colorPalette: 'natural, muted, warm tones',
+            textIntegration: 'minimal or reserved',
+            productPresentation: 'in-context when appropriate'
+        }
+    },
+    taiwan: {
+        name: 'Taiwan Market',
+        contextualImageryPreference: 'medium',
+        informationDensityTolerance: 'high',
+        trustEvidenceRequirement: 'high',
+        socialProofSensitivity: 'high',
+        promotionSensitivity: 'high',
+        lifestyleIdentification: 'medium',
+        visualTendencies: {
+            backgroundPreference: 'vibrant or promotional',
+            colorPalette: 'energetic, saturated colors',
+            textIntegration: 'overlay-friendly',
+            productPresentation: 'clear product visibility'
+        }
+    },
+    hongkong: {
+        name: 'Hong Kong Market',
+        contextualImageryPreference: 'medium',
+        informationDensityTolerance: 'medium',
+        trustEvidenceRequirement: 'high',
+        socialProofSensitivity: 'medium',
+        promotionSensitivity: 'medium',
+        lifestyleIdentification: 'medium',
+        visualTendencies: {
+            backgroundPreference: 'clean or subtle context',
+            colorPalette: 'modern, professional tones',
+            textIntegration: 'balanced',
+            productPresentation: 'clear + quality signals'
+        }
+    },
+    china: {
+        name: 'Mainland China Market',
+        contextualImageryPreference: 'medium-high',
+        informationDensityTolerance: 'very-high',
+        trustEvidenceRequirement: 'very-high',
+        socialProofSensitivity: 'very-high',
+        promotionSensitivity: 'very-high',
+        lifestyleIdentification: 'high',
+        visualTendencies: {
+            backgroundPreference: 'rich, detailed scenes',
+            colorPalette: 'bold, premium, gold accents',
+            textIntegration: 'heavy overlay acceptable',
+            productPresentation: 'aspirational + detailed'
+        }
+    }
+};
+
+// Map platform IDs to market IDs.
+function getMarketFromPlatform(platformId) {
+    const marketMap = {
+        'amazon-jp': 'japan',
+        rakuten: 'japan',
+        'shopee-tw': 'taiwan',
+        'qoo10-jp': 'japan'
+    };
+    return marketMap[platformId] || 'japan';
+}
+
 const OVERLAY_CONSTRAINT_IDS = new Set([
     'promotional_price',
     'safety_text',
@@ -179,6 +255,7 @@ const OVERLAY_CONSTRAINT_IDS = new Set([
 // ===== STATE =====
 let state = {
     platform: 'amazon-jp',
+    market: 'japan',
     imageCount: 7,
     category: 'beauty',
     productName: '',
@@ -722,6 +799,10 @@ function loadBuyerMotivationSkill() {
 function buildShaperPayload(template) {
     const assets = getSelectedAssets();
     const constraints = getActiveConstraints(template);
+    const marketId = MARKET_PROFILES[state.market]
+        ? state.market
+        : getMarketFromPlatform(state.platform);
+    const marketProfile = MARKET_PROFILES[marketId] || MARKET_PROFILES.japan;
     const schema = JSON.stringify({
         planFormatVersion: PLAN_FORMAT_VERSION,
         id: 'plan_<unique id>', planSource: 'shaper', shapedAt: '<ISO timestamp>', model: SHAPER_MODEL_ID,
@@ -740,7 +821,24 @@ function buildShaperPayload(template) {
         },
         batchTone: { character: '<shared character>', palette: '<shared palette>', mood: '<shared mood>', finish: '<shared finish>' },
         resolvedImageCount: template.imageCount, countRationale: '<short reason>',
-        slots: [{ index: 1, role: 'hero', direction: '<what this slot communicates>', differentiator: '<how it differs from all sibling slots>', sceneRationale: '<why a scene or plain view is correct>', sceneSource: 'shaper|operator', copyPlacement: 'none|model-rendered|reserve-overlay-area', derivedFrom: 'open|platform-rule|operator' }]
+        slots: [{
+            index: 1,
+            role: 'hero',
+            direction: '<what this slot communicates>',
+            differentiator: '<how it differs from all sibling slots>',
+            sceneRationale: '<why a scene or plain view is correct>',
+            sceneSource: 'shaper|operator',
+            copyPlacement: 'none|model-rendered|reserve-overlay-area',
+            derivedFrom: 'open|platform-rule|operator',
+            visualElements: {
+                backgroundType: 'pure-white|neutral-solid|gradient|contextual-scene|lifestyle-environment',
+                productTreatment: 'centered-isolated|angled-with-shadow|in-context|in-use',
+                layoutComposition: 'product-dominant|balanced|environmental',
+                colorPalette: 'product-accurate|warm-enhanced|cool-enhanced|vibrant-pop',
+                lifestyleLevel: 'none|subtle-props|full-scene|human-presence',
+                textStrategy: 'text-free|reserve-overlay-space|model-rendered-headline'
+            }
+        }]
     }, null, 2);
 
     // Load buyer motivation skill from file
@@ -749,11 +847,12 @@ function buildShaperPayload(template) {
     const prompt = [
         'You are Shaper, an eCommerce image batch planner. Return JSON only, with no markdown fences.',
         `Closed roles: ${Array.from(SHAPER_ROLES).join(', ')}. Never invent a role.`,
-        `JSON schema: ${schema}. Each slot must include index, role, direction, differentiator, sceneRationale, sceneSource (shaper|operator), copyPlacement (none|model-rendered|reserve-overlay-area), derivedFrom (open|platform-rule|operator).`,
+        `JSON schema: ${schema}. Each slot must include index, role, direction, differentiator, sceneRationale, sceneSource (shaper|operator), copyPlacement (none|model-rendered|reserve-overlay-area), derivedFrom (open|platform-rule|operator), and complete visualElements.`,
         'Precedence: Must Have > platform hard rule > operator Preferred > Shaper > model freedom.',
         'You may only decide what is Open. Preserve Must Have facts and platform hard rules. Do not instruct creativity, variety, imagination, or originality.',
         'Use sceneRationale to justify plain or scene-based choices. Plain slots with no scene are valid and preferred when buyer verification is high.',
         buyerMotivationSkill || 'BUYER MOTIVATION FRAMEWORK: Infer the primary buyer motivation from product images and category. Choose ONE primary from: B1_Functional (function, performance, problem-solving), B2_Evidence (specs, proof, certification), B3_Lifestyle (usage context, daily life fit), B4_Aesthetic (style, taste, brand feeling), B5_Value (price, bundle, promotion), B6_Convenience (ease, speed, low friction), B7_Expert (technical detail, precision, comparison). Choose at most TWO secondary motivations. Report confidence 0.0-1.0 (0.90-1.00 = directly visible, 0.70-0.89 = strong inference, 0.50-0.69 = plausible, below 0.50 = unknown). Use motivation to weight role selection: B1 emphasize benefit/usage/feature-detail; B2 emphasize feature-detail/material-detail/scale, reduce lifestyle; B3 emphasize lifestyle/usage/benefit; B4 emphasize hero/alternate-view/material-detail; B5 emphasize package-contents/benefit, reserve overlay; B6 emphasize usage/package-contents/scale; B7 emphasize feature-detail/material-detail/scale, minimize lifestyle.',
+        `MARKET CULTURAL CONTEXT: ${marketProfile.name}\nMarket visual preferences:\n- Contextual imagery preference: ${marketProfile.contextualImageryPreference}\n- Information density tolerance: ${marketProfile.informationDensityTolerance}\n- Lifestyle identification: ${marketProfile.lifestyleIdentification}\nVisual tendencies: ${JSON.stringify(marketProfile.visualTendencies)}\n\nUse these market preferences as soft priors for visualElements choices per slot. They must not override product facts, platform hard rules, operator constraints, or buyer motivation. Each slot may make a different visual choice; do not force one background, palette, layout, or text strategy across the batch. The visualElements labels are shorthand categories, so keep exact colors, materials, scene details, and composition open when the evidence supports them.`,
         'Only use usage contexts supported by supplied product facts. Depict people only when operator input supports the audience; do not infer children or safety claims from season.',
         'When category creative preference or batch direction seeds a scene concept, build around it and set sceneSource to operator; otherwise use shaper.',
         `Platform: ${template.name}; aspect ratio: ${template.aspectRatio}; image-count bounds: ${template.minImageCount}-${template.maxImageCount}; default: ${template.imageCount}; hard rules: ${template.slotRules.join(' | ')}`,
@@ -798,12 +897,20 @@ function buildShaperPayload(template) {
             } },
             resolvedImageCount: { type: 'INTEGER', minimum: template.minImageCount, maximum: template.maxImageCount },
             countRationale: { type: 'STRING' },
-            slots: { type: 'ARRAY', items: { type: 'OBJECT', required: ['index', 'role', 'direction', 'differentiator', 'sceneRationale', 'sceneSource', 'copyPlacement', 'derivedFrom'], properties: {
+            slots: { type: 'ARRAY', items: { type: 'OBJECT', required: ['index', 'role', 'direction', 'differentiator', 'sceneRationale', 'sceneSource', 'copyPlacement', 'derivedFrom', 'visualElements'], properties: {
                 index: { type: 'INTEGER' }, role: { type: 'STRING', enum: Array.from(SHAPER_ROLES) },
                 direction: { type: 'STRING' }, differentiator: { type: 'STRING' }, sceneRationale: { type: 'STRING' },
                 sceneSource: { type: 'STRING', enum: ['shaper', 'operator'] },
                 copyPlacement: { type: 'STRING', enum: ['none', 'model-rendered', 'reserve-overlay-area'] },
-                derivedFrom: { type: 'STRING', enum: ['open', 'platform-rule', 'operator'] }
+                derivedFrom: { type: 'STRING', enum: ['open', 'platform-rule', 'operator'] },
+                visualElements: { type: 'OBJECT', required: ['backgroundType', 'productTreatment', 'layoutComposition', 'colorPalette', 'lifestyleLevel', 'textStrategy'], properties: {
+                    backgroundType: { type: 'STRING', enum: ['pure-white', 'neutral-solid', 'gradient', 'contextual-scene', 'lifestyle-environment'] },
+                    productTreatment: { type: 'STRING', enum: ['centered-isolated', 'angled-with-shadow', 'in-context', 'in-use'] },
+                    layoutComposition: { type: 'STRING', enum: ['product-dominant', 'balanced', 'environmental'] },
+                    colorPalette: { type: 'STRING', enum: ['product-accurate', 'warm-enhanced', 'cool-enhanced', 'vibrant-pop'] },
+                    lifestyleLevel: { type: 'STRING', enum: ['none', 'subtle-props', 'full-scene', 'human-presence'] },
+                    textStrategy: { type: 'STRING', enum: ['text-free', 'reserve-overlay-space', 'model-rendered-headline'] }
+                } }
             } } }
         }
     };
@@ -1815,6 +1922,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Platform change
     document.getElementById('platform-select').addEventListener('change', (e) => {
         state.platform = e.target.value;
+        state.market = getMarketFromPlatform(e.target.value);
         state.imageCount = PLATFORM_TEMPLATES[state.platform].imageCount;
         state.imageCountTouched = false;
         state.constraints = {}; // Reset constraints when platform changes
