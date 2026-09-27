@@ -26,7 +26,7 @@ function loadApp(overrides = {}) {
     });
     const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
     vm.runInContext(`${source}\n;globalThis.testApi = {\n` +
-        'PLATFORM_TEMPLATES, CATEGORY_PRESETS, MARKET_PROFILES, getMarketFromPlatform, SHAPER_ROLES, loadBuyerMotivationSkill, buildFallbackPlan, validateShaperPlan, buildShaperPayload, shapeBatch, buildPromptRecord, compilePromptRecords, buildBatchPromptRecord, getSelectedAssets, generatePrompts, previewPrompts, copyPreviewPrompt, ' +
+        'PLATFORM_TEMPLATES, CATEGORY_PRESETS, PLATFORM_LOCALES, getLocaleFromPlatform, localizeCopyItems, MARKET_PROFILES, getMarketFromPlatform, SHAPER_ROLES, loadBuyerMotivationSkill, buildFallbackPlan, validateShaperPlan, buildShaperPayload, shapeBatch, buildPromptRecord, compilePromptRecords, buildBatchPromptRecord, getSelectedAssets, generatePrompts, previewPrompts, copyPreviewPrompt, ' +
         'callNanoBananaAPI, generateSlotsWithConcurrency, exportCurrentBatch, setState(value) { state = value; }, getState() { return state; }\n' +
         '};', context);
     return { context, api: context.testApi };
@@ -52,6 +52,28 @@ test('application state defaults to the Japan market', () => {
 
     assert.equal(api.getState().platform, 'amazon-jp');
     assert.equal(api.getState().market, 'japan');
+    assert.equal(api.getState().locale, 'ja-JP');
+    assert.equal(api.getState().instructionLanguage, 'en');
+    assert.deepEqual(Array.from(api.getState().copyItems), []);
+});
+
+test('platform locale contract resolves defaults and approved copy without inventing text', () => {
+    const { api } = loadApp();
+
+    assert.equal(api.PLATFORM_LOCALES['amazon-jp'].languageName, 'Japanese');
+    assert.equal(api.getLocaleFromPlatform('amazon-jp'), 'ja-JP');
+    assert.equal(api.getLocaleFromPlatform('rakuten'), 'ja-JP');
+    assert.equal(api.getLocaleFromPlatform('shopee-tw'), 'zh-TW');
+    assert.equal(api.getLocaleFromPlatform('unknown-platform'), 'en-US');
+
+    const items = api.localizeCopyItems([
+        { id: 'slogan', text: 'Approved fallback', textByLocale: { 'ja-JP': '承認済み' }, locale: 'en-US' },
+        { id: 'empty', text: '', textByLocale: {} },
+        { id: 'missing', textByLocale: { 'zh-TW': '繁體文案' } }
+    ], 'ja-JP');
+    assert.equal(items.length, 1);
+    assert.equal(items[0].text, '承認済み');
+    assert.equal(items[0].locale, 'ja-JP');
 });
 
 function baseState(platform = 'amazon-jp', category = 'beauty') {
@@ -838,6 +860,87 @@ test('Shaper response schema requires visual elements for every slot', () => {
     assert.deepEqual(Array.from(visualElements.properties.textStrategy.enum), [
         'text-free', 'reserve-overlay-space', 'model-rendered-headline'
     ]);
+});
+
+test('Shaper response schema carries the platform locale and copy contract per slot', () => {
+    const { api } = loadApp();
+    const state = baseState('shopee-tw', 'beauty');
+    state.locale = 'zh-TW';
+    state.instructionLanguage = 'en';
+    state.copyItems = [{
+        id: 'badge-1',
+        kind: 'badge',
+        text: '限時優惠',
+        locale: 'zh-TW',
+        location: 'top-right',
+        render: 'overlay'
+    }];
+    api.setState(state);
+    const payload = api.buildShaperPayload(api.PLATFORM_TEMPLATES['shopee-tw']);
+    const slotSchema = payload.generationConfig.responseSchema.properties.slots.items;
+    const promptText = payload.contents[0].parts[0].text;
+
+    assert.equal(slotSchema.required.includes('outputLocale'), true);
+    assert.equal(slotSchema.required.includes('instructionLanguage'), true);
+    assert.equal(slotSchema.required.includes('copyItems'), true);
+    assert.deepEqual(Array.from(slotSchema.properties.instructionLanguage.enum), ['en', 'localized']);
+    assert.deepEqual(Array.from(slotSchema.properties.copyItems.items.required), ['id', 'kind', 'text', 'locale', 'location', 'render']);
+    assert.match(promptText, /LANGUAGE AND COPY CONTRACT/);
+    assert.match(promptText, /Output locale: zh-TW/);
+    assert.match(promptText, /Never translate, paraphrase, transliterate, or invent copy/);
+});
+
+test('validated Shaper plans retain only operator-approved copy', () => {
+    const { api } = loadApp();
+    const state = baseState('shopee-tw', 'beauty');
+    state.locale = 'zh-TW';
+    state.copyItems = [{
+        id: 'approved-badge',
+        kind: 'badge',
+        text: 'Approved badge',
+        textByLocale: { 'zh-TW': 'Approved badge TW' },
+        locale: 'en-US',
+        location: 'top-right',
+        render: 'overlay'
+    }];
+    api.setState(state);
+
+    const plan = api.validateShaperPlan({
+        resolvedImageCount: 1,
+        slots: [{
+            index: 1,
+            role: 'hero',
+            direction: 'Show the product clearly.',
+            differentiator: 'Approved hero.',
+            sceneRationale: 'Verification view.',
+            sceneSource: 'shaper',
+            copyPlacement: 'reserve-overlay-area',
+            outputLocale: 'en-US',
+            instructionLanguage: 'localized',
+            copyItems: [
+                { id: 'approved-badge', text: 'Invented replacement', location: 'bottom-left', render: 'model-rendered' },
+                { id: 'invented-copy', text: 'Do not accept this' }
+            ],
+            derivedFrom: 'open',
+            visualElements: {
+                backgroundType: 'neutral-solid',
+                productTreatment: 'centered-isolated',
+                layoutComposition: 'product-dominant',
+                colorPalette: 'product-accurate',
+                lifestyleLevel: 'none',
+                textStrategy: 'reserve-overlay-space'
+            }
+        }]
+    }, api.PLATFORM_TEMPLATES['shopee-tw']);
+
+    const slot = plan.slots[0];
+    assert.equal(slot.outputLocale, 'zh-TW');
+    assert.equal(slot.instructionLanguage, 'en');
+    assert.equal(slot.copyItems.length, 1);
+    assert.equal(slot.copyItems[0].id, 'approved-badge');
+    assert.equal(slot.copyItems[0].text, 'Approved badge TW');
+    assert.equal(slot.copyItems[0].location, 'top-right');
+    assert.equal(slot.copyItems[0].render, 'overlay');
 });
 
 test('Shaper payload includes market context as soft per-slot guidance', () => {

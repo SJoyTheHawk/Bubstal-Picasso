@@ -143,6 +143,37 @@ const PLATFORM_TEMPLATES = {
     }
 };
 
+// Platform locale defaults for generated asset copy. This is separate from the
+// application's UI locale and from the market profile used for visual context.
+const PLATFORM_LOCALES = {
+    'amazon-jp': { locale: 'ja-JP', languageName: 'Japanese', direction: 'ltr' },
+    rakuten: { locale: 'ja-JP', languageName: 'Japanese', direction: 'ltr' },
+    'shopee-tw': { locale: 'zh-TW', languageName: 'Traditional Chinese', direction: 'ltr' },
+    'qoo10-jp': { locale: 'ja-JP', languageName: 'Japanese', direction: 'ltr' }
+};
+
+function getLocaleFromPlatform(platformId) {
+    return PLATFORM_LOCALES[platformId]?.locale || 'en-US';
+}
+
+function localizeCopyItems(items, locale) {
+    return (items || []).map(item => {
+        const localizedText = item?.textByLocale?.[locale];
+        const hasLocalizedText = typeof localizedText === 'string' && localizedText.trim();
+        const text = hasLocalizedText
+            ? localizedText.trim()
+            : String(item?.text || '').trim();
+        const sourceLocale = item?.sourceLocale || item?.locale || locale;
+        return {
+            ...item,
+            sourceLocale,
+            targetLocale: locale,
+            locale: hasLocalizedText ? locale : sourceLocale,
+            text
+        };
+    }).filter(item => item.text);
+}
+
 const CATEGORY_PRESETS = {
     beauty: {
         name: 'Beauty & Personal Care',
@@ -256,6 +287,9 @@ const OVERLAY_CONSTRAINT_IDS = new Set([
 let state = {
     platform: 'amazon-jp',
     market: 'japan',
+    locale: 'ja-JP',
+    instructionLanguage: 'en',
+    copyItems: [],
     imageCount: 7,
     category: 'beauty',
     productName: '',
@@ -647,6 +681,11 @@ function fallbackCopyPlacement(template, index, count) {
 
 function buildFallbackPlan(template = PLATFORM_TEMPLATES[state.platform]) {
     const count = Math.max(template.minImageCount, Math.min(state.imageCount || template.imageCount, template.maxImageCount));
+    const outputLocale = /^[a-z]{2,3}-[A-Z]{2}$/.test(state.locale || '')
+        ? state.locale
+        : getLocaleFromPlatform(state.platform);
+    const instructionLanguage = state.instructionLanguage === 'localized' ? 'localized' : 'en';
+    const copyItems = localizeCopyItems(state.copyItems, outputLocale);
     const slots = Array.from({ length: count }, (_, index) => ({
         index: index + 1,
         role: roleForPurpose(template.imagePurposes[index], index),
@@ -655,6 +694,9 @@ function buildFallbackPlan(template = PLATFORM_TEMPLATES[state.platform]) {
         sceneRationale: 'Static platform guidance; use a plain product view unless the platform rule calls for context.',
         sceneSource: 'operator',
         copyPlacement: fallbackCopyPlacement(template, index, count),
+        outputLocale,
+        instructionLanguage,
+        copyItems: copyItems.map(item => ({ ...item })),
         derivedFrom: 'platform-rule'
     }));
     return {
@@ -706,6 +748,14 @@ function validateShaperPlan(raw, template = PLATFORM_TEMPLATES[state.platform]) 
         }
         const fallbackSlot = fallback.slots[index] || fallback.slots[fallback.slots.length - 1];
         const role = SHAPER_ROLES.has(candidate.role) ? candidate.role : fallbackSlot.role;
+        const outputLocale = fallbackSlot.outputLocale;
+        const instructionLanguage = fallbackSlot.instructionLanguage;
+        const approvedCopy = new Map(fallbackSlot.copyItems.map(item => [item.id, item]));
+        const copyItems = Array.isArray(candidate.copyItems)
+            ? candidate.copyItems
+                .filter(item => item && approvedCopy.has(item.id))
+                .map(item => ({ ...approvedCopy.get(item.id) }))
+            : fallbackSlot.copyItems.map(item => ({ ...item }));
         return {
             index: index + 1,
             role,
@@ -714,6 +764,9 @@ function validateShaperPlan(raw, template = PLATFORM_TEMPLATES[state.platform]) 
             sceneRationale: String(candidate.sceneRationale || fallbackSlot.sceneRationale),
             sceneSource: candidate.sceneSource === 'operator' ? 'operator' : 'shaper',
             copyPlacement: ['none', 'model-rendered', 'reserve-overlay-area'].includes(candidate.copyPlacement) ? candidate.copyPlacement : fallbackSlot.copyPlacement,
+            outputLocale,
+            instructionLanguage,
+            copyItems,
             derivedFrom: candidate.derivedFrom === 'platform-rule' ? 'platform-rule' : 'open'
         };
     });
@@ -829,6 +882,17 @@ function buildShaperPayload(template) {
             sceneRationale: '<why a scene or plain view is correct>',
             sceneSource: 'shaper|operator',
             copyPlacement: 'none|model-rendered|reserve-overlay-area',
+            outputLocale: '<BCP-47 locale, for example ja-JP or zh-TW>',
+            instructionLanguage: 'en|localized',
+            copyItems: [{
+                id: '<stable id>',
+                kind: 'slogan|short-description|badge|label',
+                text: '<exact approved text>',
+                textByLocale: { '<locale>': '<approved localized text>' },
+                locale: '<BCP-47 locale>',
+                location: 'top-left|top-center|top-right|bottom-left|bottom-center|bottom-right|custom',
+                render: 'overlay|model-rendered'
+            }],
             derivedFrom: 'open|platform-rule|operator',
             visualElements: {
                 backgroundType: 'pure-white|neutral-solid|gradient|contextual-scene|lifestyle-environment',
@@ -847,12 +911,14 @@ function buildShaperPayload(template) {
     const prompt = [
         'You are Shaper, an eCommerce image batch planner. Return JSON only, with no markdown fences.',
         `Closed roles: ${Array.from(SHAPER_ROLES).join(', ')}. Never invent a role.`,
-        `JSON schema: ${schema}. Each slot must include index, role, direction, differentiator, sceneRationale, sceneSource (shaper|operator), copyPlacement (none|model-rendered|reserve-overlay-area), derivedFrom (open|platform-rule|operator), and complete visualElements.`,
+        `JSON schema: ${schema}. Each slot must include index, role, direction, differentiator, sceneRationale, sceneSource (shaper|operator), copyPlacement (none|model-rendered|reserve-overlay-area), outputLocale, instructionLanguage, copyItems, derivedFrom (open|platform-rule|operator), and complete visualElements.`,
         'Precedence: Must Have > platform hard rule > operator Preferred > Shaper > model freedom.',
         'You may only decide what is Open. Preserve Must Have facts and platform hard rules. Do not instruct creativity, variety, imagination, or originality.',
         'Use sceneRationale to justify plain or scene-based choices. Plain slots with no scene are valid and preferred when buyer verification is high.',
         buyerMotivationSkill || 'BUYER MOTIVATION FRAMEWORK: Infer the primary buyer motivation from product images and category. Choose ONE primary from: B1_Functional (function, performance, problem-solving), B2_Evidence (specs, proof, certification), B3_Lifestyle (usage context, daily life fit), B4_Aesthetic (style, taste, brand feeling), B5_Value (price, bundle, promotion), B6_Convenience (ease, speed, low friction), B7_Expert (technical detail, precision, comparison). Choose at most TWO secondary motivations. Report confidence 0.0-1.0 (0.90-1.00 = directly visible, 0.70-0.89 = strong inference, 0.50-0.69 = plausible, below 0.50 = unknown). Use motivation to weight role selection: B1 emphasize benefit/usage/feature-detail; B2 emphasize feature-detail/material-detail/scale, reduce lifestyle; B3 emphasize lifestyle/usage/benefit; B4 emphasize hero/alternate-view/material-detail; B5 emphasize package-contents/benefit, reserve overlay; B6 emphasize usage/package-contents/scale; B7 emphasize feature-detail/material-detail/scale, minimize lifestyle.',
         `MARKET CULTURAL CONTEXT: ${marketProfile.name}\nMarket visual preferences:\n- Contextual imagery preference: ${marketProfile.contextualImageryPreference}\n- Information density tolerance: ${marketProfile.informationDensityTolerance}\n- Lifestyle identification: ${marketProfile.lifestyleIdentification}\nVisual tendencies: ${JSON.stringify(marketProfile.visualTendencies)}\n\nUse these market preferences as soft priors for visualElements choices per slot. They must not override product facts, platform hard rules, operator constraints, or buyer motivation. Each slot may make a different visual choice; do not force one background, palette, layout, or text strategy across the batch. The visualElements labels are shorthand categories, so keep exact colors, materials, scene details, and composition open when the evidence supports them.`,
+        `LANGUAGE AND COPY CONTRACT:\nOutput locale: ${state.locale || getLocaleFromPlatform(state.platform)}\nInstruction language arm: ${state.instructionLanguage === 'localized' ? 'localized' : 'en'}\nUse the output locale for visible short descriptions, slogans, badges, and labels. Copy is supplied as exact approved values with an explicit location and render mode. Never translate, paraphrase, transliterate, or invent copy. Keep visual instruction language in English unless instructionLanguage is explicitly set to the localized benchmark arm. Render only supplied strings exactly once when model-rendered; for overlay copy, reserve the named clean area and render no text.`,
+        `Approved copy items for this batch: ${JSON.stringify(localizeCopyItems(state.copyItems, state.locale || getLocaleFromPlatform(state.platform)))}. Do not create copy items when this list is empty.`,
         'Only use usage contexts supported by supplied product facts. Depict people only when operator input supports the audience; do not infer children or safety claims from season.',
         'When category creative preference or batch direction seeds a scene concept, build around it and set sceneSource to operator; otherwise use shaper.',
         `Platform: ${template.name}; aspect ratio: ${template.aspectRatio}; image-count bounds: ${template.minImageCount}-${template.maxImageCount}; default: ${template.imageCount}; hard rules: ${template.slotRules.join(' | ')}`,
@@ -897,11 +963,22 @@ function buildShaperPayload(template) {
             } },
             resolvedImageCount: { type: 'INTEGER', minimum: template.minImageCount, maximum: template.maxImageCount },
             countRationale: { type: 'STRING' },
-            slots: { type: 'ARRAY', items: { type: 'OBJECT', required: ['index', 'role', 'direction', 'differentiator', 'sceneRationale', 'sceneSource', 'copyPlacement', 'derivedFrom', 'visualElements'], properties: {
+            slots: { type: 'ARRAY', items: { type: 'OBJECT', required: ['index', 'role', 'direction', 'differentiator', 'sceneRationale', 'sceneSource', 'copyPlacement', 'outputLocale', 'instructionLanguage', 'copyItems', 'derivedFrom', 'visualElements'], properties: {
                 index: { type: 'INTEGER' }, role: { type: 'STRING', enum: Array.from(SHAPER_ROLES) },
                 direction: { type: 'STRING' }, differentiator: { type: 'STRING' }, sceneRationale: { type: 'STRING' },
                 sceneSource: { type: 'STRING', enum: ['shaper', 'operator'] },
                 copyPlacement: { type: 'STRING', enum: ['none', 'model-rendered', 'reserve-overlay-area'] },
+                outputLocale: { type: 'STRING' },
+                instructionLanguage: { type: 'STRING', enum: ['en', 'localized'] },
+                copyItems: { type: 'ARRAY', items: { type: 'OBJECT', required: ['id', 'kind', 'text', 'locale', 'location', 'render'], properties: {
+                    id: { type: 'STRING' },
+                    kind: { type: 'STRING', enum: ['slogan', 'short-description', 'badge', 'label'] },
+                    text: { type: 'STRING' },
+                    textByLocale: { type: 'OBJECT' },
+                    locale: { type: 'STRING' },
+                    location: { type: 'STRING' },
+                    render: { type: 'STRING', enum: ['overlay', 'model-rendered'] }
+                } } },
                 derivedFrom: { type: 'STRING', enum: ['open', 'platform-rule', 'operator'] },
                 visualElements: { type: 'OBJECT', required: ['backgroundType', 'productTreatment', 'layoutComposition', 'colorPalette', 'lifestyleLevel', 'textStrategy'], properties: {
                     backgroundType: { type: 'STRING', enum: ['pure-white', 'neutral-solid', 'gradient', 'contextual-scene', 'lifestyle-environment'] },
@@ -1035,6 +1112,9 @@ function buildPromptRecord(imageIndex) {
         promptFormatVersion: PROMPT_FORMAT_VERSION,
         platform: state.platform,
         category: state.category,
+        outputLocale: slot?.outputLocale || state.locale || getLocaleFromPlatform(state.platform),
+        instructionLanguage: slot?.instructionLanguage || state.instructionLanguage || 'en',
+        copyItems: slot?.copyItems || [],
         shaperPlanId: plan.id,
         planSource: plan.planSource,
         aspectRatio: template.aspectRatio,
@@ -1655,6 +1735,10 @@ async function callNanoBananaAPI(promptRecord, assets) {
 
 function buildInputSnapshot() {
     return {
+        market: state.market,
+        locale: state.locale,
+        instructionLanguage: state.instructionLanguage,
+        copyItems: state.copyItems,
         productName: state.productName,
         productVariant: state.productVariant,
         category: state.category,
@@ -1778,6 +1862,10 @@ async function loadHistory() {
 function loadBatch(batch) {
     // Restore state from batch
     state.platform = batch.platform;
+    state.market = batch.inputs.market || getMarketFromPlatform(batch.platform);
+    state.locale = batch.inputs.locale || getLocaleFromPlatform(batch.platform);
+    state.instructionLanguage = batch.inputs.instructionLanguage === 'localized' ? 'localized' : 'en';
+    state.copyItems = localizeCopyItems(batch.inputs.copyItems, state.locale);
     state.imageCount = batch.imageCount;
     state.category = batch.inputs.category || batch.category || 'beauty';
     state.productName = batch.inputs.productName || '';
@@ -1923,6 +2011,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('platform-select').addEventListener('change', (e) => {
         state.platform = e.target.value;
         state.market = getMarketFromPlatform(e.target.value);
+        state.locale = getLocaleFromPlatform(e.target.value);
+        state.copyItems = localizeCopyItems(state.copyItems, state.locale);
         state.imageCount = PLATFORM_TEMPLATES[state.platform].imageCount;
         state.imageCountTouched = false;
         state.constraints = {}; // Reset constraints when platform changes
