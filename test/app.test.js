@@ -26,7 +26,7 @@ function loadApp(overrides = {}) {
     });
     const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
     vm.runInContext(`${source}\n;globalThis.testApi = {\n` +
-        'PLATFORM_TEMPLATES, CATEGORY_PRESETS, PLATFORM_LOCALES, getLocaleFromPlatform, localizeCopyItems, MARKET_PROFILES, getMarketFromPlatform, SHAPER_ROLES, loadBuyerMotivationSkill, buildFallbackPlan, validateRawShaperPlan, validateShaperPlan, buildShaperPayload, shapeBatch, buildPromptRecord, compilePromptRecords, buildBatchPromptRecord, getSelectedAssets, generatePrompts, previewPrompts, copyPreviewPrompt, ' +
+        'PLATFORM_TEMPLATES, CATEGORY_PRESETS, PLATFORM_LOCALES, PLATFORM_COPY_POLICIES, getPlatformCopyPolicy, getLocaleFromPlatform, localizeCopyItems, MARKET_PROFILES, getMarketFromPlatform, SHAPER_ROLES, loadBuyerMotivationSkill, buildFallbackPlan, validateRawShaperPlan, validateShaperPlan, buildShaperPayload, shapeBatch, buildPromptRecord, compilePromptRecords, buildBatchPromptRecord, getSelectedAssets, generatePrompts, previewPrompts, copyPreviewPrompt, ' +
         'callNanoBananaAPI, generateSlotsWithConcurrency, exportCurrentBatch, setState(value) { state = value; }, getState() { return state; }\n' +
         '};', context);
     return { context, api: context.testApi };
@@ -74,6 +74,16 @@ test('platform locale contract resolves defaults and approved copy without inven
     assert.equal(items.length, 1);
     assert.equal(items[0].text, '承認済み');
     assert.equal(items[0].locale, 'ja-JP');
+});
+
+test('platform copy policies distinguish primary and secondary image text', () => {
+    const { api } = loadApp();
+
+    assert.equal(api.PLATFORM_COPY_POLICIES['amazon-jp'].firstSlotTextFree, true);
+    assert.equal(api.PLATFORM_COPY_POLICIES['amazon-jp'].allowShaperAuthoredCopy, true);
+    assert.equal(api.PLATFORM_COPY_POLICIES['shopee-tw'].maxItemsPerSlot, 2);
+    assert.match(api.PLATFORM_COPY_POLICIES['shopee-tw'].guidance, /Traditional Chinese/);
+    assert.equal(api.PLATFORM_COPY_POLICIES.rakuten.firstImageTextAreaLimit, '20%');
 });
 
 function baseState(platform = 'amazon-jp', category = 'beauty') {
@@ -215,7 +225,8 @@ test('Nano Banana request sends one exact slot prompt and all selected images', 
     assert.equal(requestBody.generationConfig.maxOutputTokens, 32768);
     assert.deepEqual(requestBody.generationConfig.responseModalities, ['TEXT', 'IMAGE']);
     assert.equal(requestBody.contents[0].parts.filter(part => part.inlineData).length, 3);
-    assert.match(requestBody.contents[0].parts[0].text, /IMAGE 2 OF 3/);
+    assert.match(requestBody.contents[0].parts[0].text, /SLOT 2 OF 3/);
+    assert.match(requestBody.contents[0].parts[0].text, /Generate only this slot's one image/);
     assert.match(requestBody.contents[0].parts[0].text, /Return exactly one final image for this slot/);
     assert.match(requestBody.contents[0].parts[0].text, /AVOID DUPLICATING SIBLING SLOTS/);
     assert.equal(requestBody.contents[0].parts[0].text.match(/PRODUCT IDENTITY - MUST PRESERVE/g).length, 1);
@@ -565,8 +576,13 @@ test('prompt preview shows an immediate busy state while Gemini planning is pend
     assert.equal(elements['generate-btn'].disabled, false);
 });
 
-test('image generation shows locked controls, placeholders, and live Gemini status while pending', async () => {
+test('image generation shows locked controls, placeholders, and live model status while pending', async () => {
     const generationResolvers = [];
+    const placeholders = new Map([1, 2].map(index => [index, {
+        outerHTML: `<div class="generation-placeholder" data-slot-index="${index}"></div>`,
+        classList: { add() {}, remove() {} },
+        querySelector() { return { textContent: '' }; }
+    }]));
     let signalGenerationStarted;
     const generationStarted = new Promise(resolve => { signalGenerationStarted = resolve; });
     const elements = {
@@ -591,6 +607,10 @@ test('image generation shows locked controls, placeholders, and live Gemini stat
         document: {
             addEventListener() {},
             getElementById(id) { return elements[id] || null; },
+            querySelector(selector) {
+                const match = /data-slot-index="(\d+)"/.exec(selector);
+                return match ? placeholders.get(Number(match[1])) || null : null;
+            },
             createElement() { return { className: '', innerHTML: '', appendChild() {} }; }
         }
     });
@@ -632,6 +652,8 @@ test('image generation shows locked controls, placeholders, and live Gemini stat
     assert.equal(elements['preview-prompts-btn'].disabled, false);
     assert.equal(elements['generate-btn'].disabled, false);
     assert.equal(elements['results-section']['aria-busy'], 'false');
+    assert.match(placeholders.get(1).outerHTML, /T05F/);
+    assert.match(placeholders.get(2).outerHTML, /VFdP/);
 });
 
 test('Shaper validation repairs invalid roles, slot count, and duplicate differentiators', () => {
@@ -1045,6 +1067,35 @@ test('raw Shaper validation rejects implicit, duplicate, and invented slot data'
     assert.equal(validation.valid, false);
     assert.match(validation.issues.join('\n'), /must be unique/);
     assert.match(validation.issues.join('\n'), /approved copy/);
+});
+
+test('platform-aware Shaper copy accepts factual secondary copy and protects primary images', () => {
+    const { api } = loadApp();
+    const state = baseState('shopee-tw', 'electronics');
+    state.imageCount = 2;
+    api.setState(state);
+    const shopeePlan = completeShaperPlan({
+        resolvedImageCount: 2,
+        batchTone: { character: 'Clear', palette: 'Neutral', mood: 'Direct', finish: 'Clean' },
+        slots: [
+            { index: 1, role: 'hero', direction: 'Cover', differentiator: 'Clean cover', sceneRationale: 'Verification', sceneSource: 'shaper', copyPlacement: 'none', derivedFrom: 'platform-rule' },
+            { index: 2, role: 'feature-detail', direction: 'Feature', differentiator: 'Factual feature label', sceneRationale: 'Explanation', sceneSource: 'shaper', copyPlacement: 'model-rendered', derivedFrom: 'open', copyItems: [{ id: 'shaper-feature', kind: 'short-description', text: '清晰顯示拍攝畫面', locale: 'zh-TW', location: 'bottom-center', render: 'model-rendered' }] }
+        ]
+    }, 'zh-TW');
+    const valid = api.validateRawShaperPlan(shopeePlan, api.PLATFORM_TEMPLATES['shopee-tw']);
+    assert.equal(valid.valid, true);
+
+    const amazonState = baseState('amazon-jp', 'electronics');
+    amazonState.imageCount = 1;
+    api.setState(amazonState);
+    const amazonPlan = completeShaperPlan({
+        resolvedImageCount: 1,
+        batchTone: { character: 'Clear', palette: 'Neutral', mood: 'Direct', finish: 'Clean' },
+        slots: [{ index: 1, role: 'hero', direction: 'Cover', differentiator: 'Hero', sceneRationale: 'Verification', sceneSource: 'shaper', copyPlacement: 'model-rendered', derivedFrom: 'open', copyItems: [{ id: 'shaper-hero', kind: 'slogan', text: '清晰畫面', locale: 'ja-JP', location: 'bottom-center', render: 'model-rendered' }] }]
+    }, 'ja-JP');
+    const invalid = api.validateRawShaperPlan(amazonPlan, api.PLATFORM_TEMPLATES['amazon-jp']);
+    assert.equal(invalid.valid, false);
+    assert.match(invalid.issues.join('\n'), /at most 0 item/);
 });
 
 test('shapeBatch retries one invalid raw plan before using the result', async () => {

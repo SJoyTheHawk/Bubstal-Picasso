@@ -87,7 +87,7 @@ const PLATFORM_TEMPLATES = {
         ],
         tone: 'Clear, energetic eCommerce imagery with strong product visibility and an original promotional composition.',
         slotRules: [
-            'Make the product the unmistakable focal point and leave usable space for supplied promotional copy.',
+            'Use a clean cover image: make the product the unmistakable focal point, keep it fully visible, and render no added text, price, badge, watermark, or promotional graphic.',
             'Visualize one supplied customer benefit without inventing performance or before-and-after results.',
             'Communicate one supplied feature through the product itself, a detail view, or a simple visual demonstration.',
             'Communicate a different supplied feature using a new composition rather than repeating the previous layout.',
@@ -151,6 +151,46 @@ const PLATFORM_LOCALES = {
     'shopee-tw': { locale: 'zh-TW', languageName: 'Traditional Chinese', direction: 'ltr' },
     'qoo10-jp': { locale: 'ja-JP', languageName: 'Japanese', direction: 'ltr' }
 };
+
+// Image-copy strategy is separate from the UI locale and from the market
+// profile. These are operational guardrails for Shaper and image prompts.
+const PLATFORM_COPY_POLICIES = {
+    'amazon-jp': {
+        mode: 'main-image-restricted',
+        allowShaperAuthoredCopy: true,
+        firstSlotTextFree: true,
+        maxItemsPerSlot: 1,
+        maxCharactersPerItem: 32,
+        guidance: 'Keep the primary image text-free. For secondary images, Shaper may author at most one concise factual Japanese feature, comparison, or usage label from supplied product facts and approved constraints. Never add prices, badges, reviews, unsupported claims, disclaimers, or safety text to an image.'
+    },
+    'shopee-tw': {
+        mode: 'image-led',
+        allowShaperAuthoredCopy: true,
+        maxItemsPerSlot: 2,
+        maxCharactersPerItem: 32,
+        guidance: 'Treat later preview images as an important product-information surface. Keep the cover image text-free; for later slots, Shaper may author one or two concise Traditional Chinese slogan, selling-point, feature, or bundle labels from supplied product facts and approved constraints. Keep disclaimers, safety, exclusions, and legal text in listing descriptions unless the operator explicitly supplies them as approved overlay copy.'
+    },
+    rakuten: {
+        mode: 'limited',
+        allowShaperAuthoredCopy: true,
+        maxItemsPerSlot: 2,
+        maxCharactersPerItem: 32,
+        firstImageTextAreaLimit: '20%',
+        guidance: 'Use concise Japanese product names, feature labels, or catchphrases where they improve comprehension. Keep text on the first product image and SKU image within 20% of the image area; avoid dense promotional panels. Keep legal, safety, and disclaimer text in listing content unless explicitly approved.'
+    }
+};
+
+function getPlatformCopyPolicy(platformOrTemplate) {
+    const platformId = typeof platformOrTemplate === 'string'
+        ? platformOrTemplate
+        : Object.entries(PLATFORM_TEMPLATES).find(([, template]) => template === platformOrTemplate)?.[0];
+    return PLATFORM_COPY_POLICIES[platformId] || {
+        mode: 'limited',
+        allowShaperAuthoredCopy: false,
+        maxItemsPerSlot: 0,
+        guidance: 'Use only operator-approved copy and keep legal or safety information in listing content.'
+    };
+}
 
 function getLocaleFromPlatform(platformId) {
     return PLATFORM_LOCALES[platformId]?.locale || 'en-US';
@@ -669,6 +709,8 @@ function roleForPurpose(purpose, index) {
 }
 
 function fallbackCopyPlacement(template, index, count) {
+    const copyPolicy = getPlatformCopyPolicy(template);
+    if (copyPolicy.firstSlotTextFree && index === 0) return 'none';
     const lastSlot = Math.max(0, count - 1);
     const copySlot = {
         promotional_price: 0, trust_markers: 0, specifications: Math.min(1, lastSlot),
@@ -676,10 +718,13 @@ function fallbackCopyPlacement(template, index, count) {
         size_info: Math.min(3, lastSlot), safety_text: lastSlot
     };
     const ids = Object.keys(copySlot).filter(id => copySlot[id] === index);
-    return ids.length ? 'reserve-overlay-area' : (index === 0 && template.name !== 'Amazon.co.jp' ? 'model-rendered' : 'none');
+    if (ids.length) return 'reserve-overlay-area';
+    if (copyPolicy.mode === 'image-led' && index > 0) return 'model-rendered';
+    return index === 0 && !copyPolicy.firstSlotTextFree ? 'model-rendered' : (index > 0 && copyPolicy.mode === 'main-image-restricted' ? 'model-rendered' : 'none');
 }
 
 function fallbackVisualElements(role, index, market) {
+    const copyPolicy = getPlatformCopyPolicy(state.platform);
     const isLifestyle = role === 'lifestyle' || role === 'usage';
     const isDetail = role === 'material-detail' || role === 'feature-detail' || role === 'scale';
     const isTaiwanOrChina = market === 'taiwan' || market === 'china';
@@ -689,7 +734,9 @@ function fallbackVisualElements(role, index, market) {
         layoutComposition: isLifestyle ? 'environmental' : (index === 0 ? 'product-dominant' : 'balanced'),
         colorPalette: isTaiwanOrChina && index > 0 ? 'vibrant-pop' : 'product-accurate',
         lifestyleLevel: isLifestyle ? 'full-scene' : (isDetail ? 'subtle-props' : 'none'),
-        textStrategy: isTaiwanOrChina && index === 0 ? 'model-rendered-headline' : 'text-free'
+        textStrategy: (copyPolicy.mode === 'image-led' || copyPolicy.mode === 'main-image-restricted') && index > 0
+            ? 'model-rendered-headline'
+            : (copyPolicy.mode === 'limited' && index === 0 ? 'reserve-overlay-space' : 'text-free')
     };
 }
 
@@ -798,6 +845,7 @@ function validateRawShaperPlan(raw, template = PLATFORM_TEMPLATES[state.platform
     if (parsed.slots.length !== expectedCount) addIssue('slots', `must contain exactly ${expectedCount} items`);
     const indexes = new Set();
     const validRoles = SHAPER_ROLES;
+    const copyPolicy = getPlatformCopyPolicy(template);
     const visualEnums = {
         backgroundType: ['pure-white', 'neutral-solid', 'gradient', 'contextual-scene', 'lifestyle-environment'],
         productTreatment: ['centered-isolated', 'angled-with-shadow', 'in-context', 'in-use'],
@@ -830,6 +878,10 @@ function validateRawShaperPlan(raw, template = PLATFORM_TEMPLATES[state.platform
         if (!Array.isArray(slot.copyItems)) {
             addIssue(`${path}.copyItems`, 'must be an array');
         } else {
+            const maxItems = copyPolicy.firstSlotTextFree && slot.index === 1 ? 0 : copyPolicy.maxItemsPerSlot;
+            if (slot.copyItems.length > maxItems) {
+                addIssue(`${path}.copyItems`, `may contain at most ${maxItems} item(s) for this platform`);
+            }
             const approved = new Map((fallbackSlot?.copyItems || []).map(item => [item.id, item]));
             const seenCopy = new Set();
             slot.copyItems.forEach((item, copyIndex) => {
@@ -838,13 +890,23 @@ function validateRawShaperPlan(raw, template = PLATFORM_TEMPLATES[state.platform
                 if (Object.hasOwn(item, 'textByLocale')) addIssue(`${copyPath}.textByLocale`, 'must remain in operator input');
                 ['id', 'kind', 'text', 'locale', 'location', 'render'].forEach(field => { if (item[field] === undefined || item[field] === null) addIssue(`${copyPath}.${field}`, 'is required'); });
                 const expected = approved.get(item.id);
-                if (!expected) addIssue(`${copyPath}.id`, 'must reference approved copy');
+                const shaperAuthored = copyPolicy.allowShaperAuthoredCopy
+                    && typeof item.id === 'string'
+                    && item.id.startsWith('shaper-');
+                if (!expected && !shaperAuthored) addIssue(`${copyPath}.id`, 'must reference approved copy or use the platform shaper-copy prefix');
                 if (seenCopy.has(item.id)) addIssue(`${copyPath}.id`, 'must be unique');
                 seenCopy.add(item.id);
                 if (!copyKinds.includes(item.kind)) addIssue(`${copyPath}.kind`, 'has an invalid value');
                 if (typeof item.text !== 'string' || !item.text.trim()) addIssue(`${copyPath}.text`, 'must be a non-empty string');
                 if (expected) {
                     ['kind', 'text', 'locale', 'location', 'render'].forEach(field => { if (item[field] !== expected[field]) addIssue(`${copyPath}.${field}`, 'must match approved copy'); });
+                }
+                if (shaperAuthored) {
+                    if (item.locale !== fallbackSlot?.outputLocale) addIssue(`${copyPath}.locale`, `must equal ${fallbackSlot?.outputLocale}`);
+                    if (item.render !== 'model-rendered') addIssue(`${copyPath}.render`, 'must be model-rendered for Shaper-authored copy');
+                    if (copyPolicy.maxCharactersPerItem && Array.from(String(item.text || '')).length > copyPolicy.maxCharactersPerItem) {
+                        addIssue(`${copyPath}.text`, `must be ${copyPolicy.maxCharactersPerItem} characters or fewer`);
+                    }
                 }
                 if (!copyLocations.includes(item.location)) addIssue(`${copyPath}.location`, 'has an invalid value');
                 if (!['overlay', 'model-rendered'].includes(item.render)) addIssue(`${copyPath}.render`, 'has an invalid value');
@@ -862,6 +924,7 @@ function validateShaperPlan(raw, template = PLATFORM_TEMPLATES[state.platform]) 
     const parsed = parseShaperResponse(raw);
     if (!parsed || !Array.isArray(parsed.slots)) return buildFallbackPlan(template);
     const fallback = buildFallbackPlan(template);
+    const copyPolicy = getPlatformCopyPolicy(template);
     const targetCount = state.imageCountTouched
         ? Math.max(template.minImageCount, Math.min(Number(state.imageCount) || template.imageCount, template.maxImageCount))
         : Math.max(template.minImageCount, Math.min(Number(parsed.resolvedImageCount) || template.imageCount, template.maxImageCount));
@@ -893,8 +956,24 @@ function validateShaperPlan(raw, template = PLATFORM_TEMPLATES[state.platform]) 
         const approvedCopy = new Map(fallbackSlot.copyItems.map(item => [item.id, item]));
         const copyItems = Array.isArray(candidate.copyItems)
             ? candidate.copyItems
-                .filter(item => item && approvedCopy.has(item.id))
-                .map(item => ({ ...approvedCopy.get(item.id) }))
+                .filter(item => item && (approvedCopy.has(item.id) || (
+                    copyPolicy.allowShaperAuthoredCopy
+                    && typeof item.id === 'string'
+                    && item.id.startsWith('shaper-')
+                    && !(copyPolicy.firstSlotTextFree && index === 0)
+                    && item.locale === fallbackSlot.outputLocale
+                    && item.render === 'model-rendered'
+                    && typeof item.text === 'string'
+                    && (!copyPolicy.maxCharactersPerItem || Array.from(item.text).length <= copyPolicy.maxCharactersPerItem)
+                )))
+                .map(item => approvedCopy.has(item.id) ? ({ ...approvedCopy.get(item.id) }) : ({
+                    id: item.id,
+                    kind: item.kind,
+                    text: item.text,
+                    locale: fallbackSlot.outputLocale,
+                    location: item.location,
+                    render: 'model-rendered'
+                }))
             : fallbackSlot.copyItems.map(item => ({ ...item }));
         return {
             index: index + 1,
@@ -993,6 +1072,7 @@ function loadBuyerMotivationSkill() {
 function buildShaperPayload(template, options = {}) {
     const assets = getSelectedAssets();
     const constraints = getActiveConstraints(template);
+    const copyPolicy = getPlatformCopyPolicy(template);
     const guidanceArm = ['unguided', 'original', 'revised'].includes(options.guidanceArm)
         ? options.guidanceArm
         : 'revised';
@@ -1029,9 +1109,9 @@ function buildShaperPayload(template, options = {}) {
             outputLocale: '<BCP-47 locale, for example ja-JP or zh-TW>',
             instructionLanguage: 'en|localized',
             copyItems: [{
-                id: '<stable id>',
+                id: '<approved id or shaper-... when platform policy permits authored copy>',
                 kind: 'slogan|short-description|badge|label',
-                text: '<exact approved text>',
+                text: '<exact approved text or concise factual image copy>',
                 locale: '<BCP-47 locale>',
                 location: 'top-left|top-center|top-right|bottom-left|bottom-center|bottom-right|custom',
                 render: 'overlay|model-rendered'
@@ -1053,6 +1133,9 @@ function buildShaperPayload(template, options = {}) {
 
     const marketContextGuidance = `MARKET CULTURAL CONTEXT: ${marketProfile.name}\nMarket visual preferences:\n- Contextual imagery preference: ${marketProfile.contextualImageryPreference}\n- Information density tolerance: ${marketProfile.informationDensityTolerance}\n- Lifestyle identification: ${marketProfile.lifestyleIdentification}\nVisual tendencies: ${JSON.stringify(marketProfile.visualTendencies)}\n\nUse these market preferences as soft priors for visualElements choices per slot. They must not override product facts, platform hard rules, operator constraints, or buyer motivation. Each slot may make a different visual choice; do not force one background, palette, layout, or text strategy across the batch. The visualElements labels are shorthand categories, so keep exact colors, materials, scene details, and composition open when the evidence supports them.`;
     const revisedMarketContextGuidance = `MARKET CONTEXT HYPOTHESIS: ${marketProfile.name}\nThe following profile values are unverified hypotheses for experiment comparison, not research evidence or fixed audience facts:\n- Contextual imagery signal: ${marketProfile.contextualImageryPreference}\n- Information density signal: ${marketProfile.informationDensityTolerance}\n- Lifestyle identification signal: ${marketProfile.lifestyleIdentification}\n- Visual tendency hypotheses: ${JSON.stringify(marketProfile.visualTendencies)}\n\nUse these signals only when they are consistent with supplied product evidence, references, operator direction, platform rules, or tested market evidence. Never state that consumers in this market prefer a treatment based on this profile alone, and never use the market label as the sole reason for a slot's visual choice.`;
+    const copyStrategyGuidance = `PLATFORM IMAGE-COPY STRATEGY (${copyPolicy.mode})\n${copyPolicy.guidance}\n${copyPolicy.allowShaperAuthoredCopy
+        ? `When the operator has not supplied copy, author exact copyItems only for factual image communication. Use the id prefix "shaper-"; use kind slogan for a hero line, short-description for a selling point, label for a feature or bundle item, or badge only when the supplied facts support it. Use at most ${copyPolicy.maxItemsPerSlot} item(s) per slot, keep each item at ${copyPolicy.maxCharactersPerItem} characters or fewer, use outputLocale, and set render to model-rendered. Spread copy across complementary slots without repeating it.`
+        : 'Do not author copyItems. Return an empty copyItems array unless an operator-approved item is supplied.'}\nDo not turn safety instructions, disclaimers, exclusions, legal text, or unsupported claims into selling copy. Every authored string must be directly supported by the product name, variant, supplied facts, product references, or locked operator constraints. Avoid prices, ratings, comparative claims, superlatives, guarantees, and performance claims unless explicitly supplied.`;
     const visualSelectionGuidance = `VISUAL ELEMENT SELECTION GUIDANCE:\nFor each slot, choose visualElements to serve the slot's communication objective. Consider, in order: platform hard rules, product evidence and category, approved operator constraints and brand direction, buyer motivation, market context, then model freedom for all remaining decisions.\n\nPlan the slots as one ordered, complementary batch story: each slot should add useful product information or context that is not already covered by its siblings. Use one shared batchTone for coherence, while allowing different backgrounds, palettes, layouts, lifestyle levels, and text strategies by slot.\n\nMarket context is a soft prior and a testable hypothesis. Do not select a treatment solely because of a country, platform, or buyer-motivation label. Do not force one background, palette, layout, lifestyle level, or text strategy across the batch. Each slot may make a different visual choice.\n\nGround rationale in this case's supplied product facts, references, operator direction, or platform rules. The market profile is an unverified hypothesis, not research evidence: do not state a market-specific consumer preference as fact based only on the market label or profile. If you use market context, identify it as a hypothesis and never make it the sole reason for a visual choice.\n\nUse pure-white only when a platform rule or strong verification objective supports it. Use contextual-scene or lifestyle-environment when the slot needs to communicate usage, scale, compatibility, or lifestyle fit. Use human-presence only when a person materially explains fit, scale, or application and the product evidence supports the depiction. Use model-rendered-headline only when approved copy exists and the experiment explicitly permits model-rendered text; otherwise use text-free or reserve-overlay-space.\n\nTreat gradient, warm-enhanced, cool-enhanced, and vibrant-pop as optional stylistic treatments. Choose them when the product, category, brand direction, supplied references, campaign, or tested market evidence supports them. Do not infer a color treatment from Japan, Taiwan, China, or any other market alone.\n\nKeep exact colors, materials, scene details, props, people, lighting, camera angle, and composition open to model judgment unless constrained by supplied facts, platform rules, or operator input. When evidence is weak, choose the least assumptive valid treatment that preserves product clarity.\n\nEvery slot must include complete visualElements, and the visualElements labels must remain a concise description of the image job rather than a complete art direction.`;
 
     const prompt = [
@@ -1064,8 +1147,9 @@ function buildShaperPayload(template, options = {}) {
         'Use sceneRationale to justify plain or scene-based choices. Plain slots with no scene are valid and preferred when buyer verification is high.',
         buyerMotivationSkill || 'BUYER MOTIVATION FRAMEWORK: Infer the primary buyer motivation from product images and category. Choose ONE primary from: B1_Functional (function, performance, problem-solving), B2_Evidence (specs, proof, certification), B3_Lifestyle (usage context, daily life fit), B4_Aesthetic (style, taste, brand feeling), B5_Value (price, bundle, promotion), B6_Convenience (ease, speed, low friction), B7_Expert (technical detail, precision, comparison). Choose at most TWO secondary motivations. Report confidence 0.0-1.0 (0.90-1.00 = directly visible, 0.70-0.89 = strong inference, 0.50-0.69 = plausible, below 0.50 = unknown). Use motivation to weight role selection: B1 emphasize benefit/usage/feature-detail; B2 emphasize feature-detail/material-detail/scale, reduce lifestyle; B3 emphasize lifestyle/usage/benefit; B4 emphasize hero/alternate-view/material-detail; B5 emphasize package-contents/benefit, reserve overlay; B6 emphasize usage/package-contents/scale; B7 emphasize feature-detail/material-detail/scale, minimize lifestyle.',
         ...(guidanceArm === 'original' ? [marketContextGuidance] : []),
-        `LANGUAGE AND COPY CONTRACT:\nOutput locale: ${state.locale || getLocaleFromPlatform(state.platform)}\nInstruction language arm: ${state.instructionLanguage === 'localized' ? 'localized' : 'en'}\nUse the output locale for visible short descriptions, slogans, badges, and labels. Copy is supplied as exact approved values with an explicit location and render mode. Never translate, paraphrase, transliterate, or invent copy. Keep visual instruction language in English unless instructionLanguage is explicitly set to the localized benchmark arm. Render only supplied strings exactly once when model-rendered; for overlay copy, reserve the named clean area and render no text.`,
-        `Approved copy items for this batch: ${JSON.stringify(localizeCopyItems(state.copyItems, state.locale || getLocaleFromPlatform(state.platform)).map(({ id, kind, text, locale, location, render }) => ({ id, kind, text, locale, location, render })))}. Do not create copy items when this list is empty.`,
+        `LANGUAGE AND COPY CONTRACT:\nOutput locale: ${state.locale || getLocaleFromPlatform(state.platform)}\nInstruction language arm: ${state.instructionLanguage === 'localized' ? 'localized' : 'en'}\nUse the output locale for visible short descriptions, slogans, badges, and labels. Never translate, paraphrase, transliterate, or invent copy. Operator-approved copy must remain exact. Keep visual instruction language in English unless instructionLanguage is explicitly set to the localized benchmark arm. Render each returned copy string exactly once when model-rendered; for overlay copy, reserve the named clean area and render no text.`,
+        `Approved copy items for this batch: ${JSON.stringify(localizeCopyItems(state.copyItems, state.locale || getLocaleFromPlatform(state.platform)).map(({ id, kind, text, locale, location, render }) => ({ id, kind, text, locale, location, render })))}. ${copyPolicy.allowShaperAuthoredCopy ? 'If this list is empty, follow PLATFORM IMAGE-COPY STRATEGY to author factual copy.' : 'Do not create copy items when this list is empty.'}`,
+        copyStrategyGuidance,
         ...(guidanceArm === 'revised' ? [revisedMarketContextGuidance, visualSelectionGuidance] : []),
         'Only use usage contexts supported by supplied product facts. Depict people only when operator input supports the audience; do not infer children or safety claims from season.',
         'Evidence boundary for every slot: product photos establish visible appearance, but adjacent objects do not prove in-box contents. Name an accessory as included only when supplied facts explicitly confirm it. Do not add documentation, bundle items, performance claims, ruggedness, stabilization, use timing, or precision claims by inference from product category or visual style. Do not assert a national or platform audience preference without supplied or tested evidence. When facts are insufficient for a package-contents role, choose another useful role grounded in the verified product instead. These limits do not prescribe backgrounds, colors, lighting, composition, or scene details that remain Open.',
@@ -1217,6 +1301,7 @@ function buildLanguageContract(outputLocale, instructionLanguage) {
 function buildPromptRecord(imageIndex) {
     const template = PLATFORM_TEMPLATES[state.platform];
     const category = CATEGORY_PRESETS[state.category];
+    const copyPolicy = getPlatformCopyPolicy(state.platform);
     const plan = state.shaperPlan || (state.shaperPlan = buildFallbackPlan(template));
     const slot = plan.slots[imageIndex] || buildFallbackPlan(template).slots[imageIndex];
     const purpose = slot?.role || roleForPurpose(template.imagePurposes[imageIndex], imageIndex);
@@ -1242,8 +1327,9 @@ function buildPromptRecord(imageIndex) {
 
     const sections = [
         `Create a new ${template.name} eCommerce product photograph using the attached product photos as identity references.`,
-        `IMAGE ${imageIndex + 1} OF ${state.imageCount}\nPurpose: ${purpose}\nShaper direction: ${slot?.direction || ''}\nDifferentiator: ${slot?.differentiator || ''}\nScene rationale: ${slot?.sceneRationale || ''}`,
+        `SLOT ${imageIndex + 1} OF ${state.imageCount}\nGenerate only this slot's one image. Do not generate the other slots.\nPurpose: ${purpose}\nShaper direction: ${slot?.direction || ''}\nDifferentiator: ${slot?.differentiator || ''}\nScene rationale: ${slot?.sceneRationale || ''}`,
         `PLATFORM AND SLOT REQUIREMENTS\n${platformRule}\nIf Shaper direction conflicts with this platform rule, the platform rule wins.\nShared tone: ${JSON.stringify(plan.batchTone || template.tone)}`,
+        `PLATFORM IMAGE-COPY STRATEGY (${copyPolicy.mode})\n${copyPolicy.guidance}\nRender only copy explicitly supplied in the text sections below. Keep any text concise, legible, and in ${outputLocale}. Do not invent prices, ratings, safety instructions, disclaimers, or unsupported claims.`,
         buildLanguageContract(outputLocale, slot?.instructionLanguage || state.instructionLanguage || 'en'),
         buildVisualElementInstruction(slot?.visualElements, outputLocale),
         `PRODUCT IDENTITY - MUST PRESERVE\nProduct name: ${state.productName.trim()}\nVariant: ${state.productVariant.trim() || 'Use the exact variant shown in the product photos.'}\nTreat every attached product photo as another view of the same product. Preserve its geometry, proportions, colors, materials, packaging, visible labels, logos, quantity, and included components. Do not redesign or replace the product.\nCategory guardrail: ${category.guidance}`
@@ -1342,7 +1428,7 @@ function buildBatchPromptRecord(promptRecords) {
         ?.split('\n')
         .find(line => line.startsWith('Shared tone:'));
     const isSlotSection = section => (
-        section.startsWith('IMAGE ')
+        section.startsWith('SLOT ')
         || section.startsWith('PLATFORM AND SLOT REQUIREMENTS')
         || section.startsWith('VISUAL ELEMENT PLAN')
         || section.startsWith('MODEL-RENDERED TEXT')
@@ -1356,7 +1442,7 @@ function buildBatchPromptRecord(promptRecords) {
 
     const slotBlocks = promptRecords.map(record => {
         const sections = splitSections(record);
-        const imageSection = sections.find(section => section.startsWith('IMAGE '));
+        const imageSection = sections.find(section => section.startsWith('SLOT '));
         const platformSection = sections.find(section => section.startsWith('PLATFORM AND SLOT REQUIREMENTS'));
         const visualSection = sections.find(section => section.startsWith('VISUAL ELEMENT PLAN'));
         const slotRequirements = platformSection
@@ -1457,7 +1543,7 @@ function setActiveTaskPhase(phase) {
     if (!activeTask) return;
     if (phase === 'generating') {
         activeTask.titleKey = 'task.generatingTitle';
-        activeTask.titleFallback = 'Gemini is generating your images';
+        activeTask.titleFallback = 'The image model is generating your images';
         activeTask.detailKey = 'task.generatingDetail';
         activeTask.detailFallback = 'Images are generated from their individual slot prompts, two at a time. This can take several minutes; keep this tab open.';
     } else {
@@ -1540,6 +1626,35 @@ function renderGenerationPlaceholders(count) {
             <p class="placeholder-status">${escapeHtml(uiText('generation.queued', {}, 'Queued'))}</p>
         </div>
     `).join('');
+}
+
+function buildResultMarkup(result) {
+    const imageOrError = result.status === 'failed'
+        ? `<p class="result-error">${escapeHtml(uiText('results.failed', {
+            error: result.error || uiText('results.unknownError', {}, 'Unknown error')
+        }, `Generation failed: ${result.error || 'Unknown error'}`))}</p>`
+        : `<img src="${result.imageUrl}" alt="${escapeHtml(uiText('results.generatedAlt', { index: result.index }, `Generated image ${result.index}`))}" class="result-image">`;
+    const overlayItems = result.copyPlan?.overlayText || [];
+    const copyDetails = overlayItems.length > 0
+        ? `<details class="result-prompt"><summary>${escapeHtml(uiText('results.overlayText', {}, 'Text to add later'))}</summary><pre>${escapeHtml(overlayItems.map(item => `${uiText(`constraint.${item.id}`, {}, item.label)}: ${item.value}`).join('\n'))}</pre></details>`
+        : '';
+    return `<div class="result-item">
+        <h3>${escapeHtml(uiText('results.imageTitle', {
+            index: result.index,
+            purpose: localizedPurpose(result.purpose)
+        }, `Image ${result.index}: ${result.purpose}`))}</h3>
+        ${imageOrError}
+        <details class="result-prompt">
+            <summary>${escapeHtml(uiText('results.viewPrompt', {}, 'View prompt'))}</summary>
+            <pre>${escapeHtml(result.prompt || '')}</pre>
+        </details>
+        ${copyDetails}
+    </div>`;
+}
+
+function replaceGenerationPlaceholder(result) {
+    const placeholder = document.querySelector?.(`.generation-placeholder[data-slot-index="${result.index}"]`);
+    if (placeholder) placeholder.outerHTML = buildResultMarkup(result);
 }
 
 function renderPromptPreview(promptRecords, selectedIndex = 'batch', batchRecord = buildBatchPromptRecord(promptRecords)) {
@@ -1805,6 +1920,12 @@ async function generatePrompts() {
                 batch.updatedAt = new Date().toISOString();
                 await saveBatch(batch);
                 state.currentBatch = batch;
+
+                const displayResult = getDisplayResults({
+                    ...batch,
+                    outputRecords: [event.result]
+                })[0];
+                if (displayResult) replaceGenerationPlaceholder(displayResult);
             }
         };
 
@@ -2000,27 +2121,7 @@ function renderResults(results) {
     results.forEach(result => {
         const item = document.createElement('div');
         item.className = 'result-item';
-        const imageOrError = result.status === 'failed'
-            ? `<p class="result-error">${escapeHtml(uiText('results.failed', {
-                error: result.error || uiText('results.unknownError', {}, 'Unknown error')
-            }, `Generation failed: ${result.error || 'Unknown error'}`))}</p>`
-            : `<img src="${result.imageUrl}" alt="${escapeHtml(uiText('results.generatedAlt', { index: result.index }, `Generated image ${result.index}`))}" class="result-image">`;
-        const overlayItems = result.copyPlan?.overlayText || [];
-        const copyDetails = overlayItems.length > 0
-            ? `<details class="result-prompt"><summary>${escapeHtml(uiText('results.overlayText', {}, 'Text to add later'))}</summary><pre>${escapeHtml(overlayItems.map(item => `${uiText(`constraint.${item.id}`, {}, item.label)}: ${item.value}`).join('\n'))}</pre></details>`
-            : '';
-        item.innerHTML = `
-            <h3>${escapeHtml(uiText('results.imageTitle', {
-                index: result.index,
-                purpose: localizedPurpose(result.purpose)
-            }, `Image ${result.index}: ${result.purpose}`))}</h3>
-            ${imageOrError}
-            <details class="result-prompt">
-                <summary>${escapeHtml(uiText('results.viewPrompt', {}, 'View prompt'))}</summary>
-                <pre>${escapeHtml(result.prompt || '')}</pre>
-            </details>
-            ${copyDetails}
-        `;
+        item.innerHTML = buildResultMarkup(result).replace(/^<div class="result-item">|<\/div>$/g, '');
         container.appendChild(item);
     });
 }
