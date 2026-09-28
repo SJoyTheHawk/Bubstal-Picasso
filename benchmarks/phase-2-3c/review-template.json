@@ -1,0 +1,61 @@
+{
+  "protocolVersion": "2.3c",
+  "runId": "REPLACE",
+  "reviewer": "REPLACE",
+  "cases": [
+    {
+      "caseId": "REPLACE",
+      "locale": "ja-JP",
+      "category": "beauty",
+      "model": "REPLACE",
+      "repeats": [
+        {
+          "repeatId": "repeat-01",
+          "arms": [
+            {
+              "arm": "unguided",
+              "slots": [
+                {
+                  "slot": 1,
+                  "productIdentity": 1,
+                  "platformCompliance": 1,
+                  "slotPurposeAdherence": 1,
+                  "shopperInterpretation": 1,
+                  "unintendedClaimsPropsPeopleText": 1,
+                  "culturalAppropriateness": 1,
+                  "copyAccuracy": 1,
+                  "copyPlacement": 1,
+                  "notes": ""
+                }
+              ],
+              "siblingSlotDiversity": 1,
+              "unsupportedCulturalOrPromotionalAssumptions": false,
+              "notes": ""
+            },
+            {
+              "arm": "original",
+              "slots": [],
+              "siblingSlotDiversity": 1,
+              "unsupportedCulturalOrPromotionalAssumptions": false,
+              "notes": ""
+            },
+            {
+              "arm": "revised",
+              "slots": [],
+              "siblingSlotDiversity": 1,
+              "unsupportedCulturalOrPromotionalAssumptions": false,
+              "notes": ""
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "decision": {
+    "status": "pending",
+    "materialIdentityRegression": null,
+    "materialSlotAdherenceRegression": null,
+    "unsupportedCulturalOrPromotionalAssumptions": null,
+    "notes": ""
+  }
+}

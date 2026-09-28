@@ -1,0 +1,58 @@
+{
+  "protocolVersion": "2.3c",
+  "shaperModel": "gemini-3.5-flash",
+  "imageModel": "gemini-3-pro-image",
+  "seedPolicy": "Use the same provider seed when supported; otherwise repeat each arm with the same numbered run IDs and record the provider response ID.",
+  "cases": [
+    {
+      "caseId": "beauty-amazon-jp-ja-jp",
+      "platform": "amazon-jp",
+      "market": "japan",
+      "locale": "ja-JP",
+      "category": "beauty",
+      "productName": "REPLACE WITH PRODUCT NAME",
+      "productVariant": "REPLACE WITH VARIANT",
+      "categoryFacts": "REPLACE WITH FACTS VISIBLE IN THE PRODUCT REFERENCES",
+      "productImages": [
+        "./product-images/beauty-front.png",
+        "./product-images/beauty-back.png"
+      ],
+      "referenceImages": [],
+      "copyItems": [],
+      "constraints": {},
+      "imageCount": 3,
+      "seed": "beauty-ja-run-01"
+    },
+    {
+      "caseId": "electronics-shopee-tw-zh-tw",
+      "platform": "shopee-tw",
+      "market": "taiwan",
+      "locale": "zh-TW",
+      "category": "electronics",
+      "productName": "REPLACE WITH PRODUCT NAME",
+      "productVariant": "REPLACE WITH VARIANT",
+      "categoryFacts": "REPLACE WITH FACTS VISIBLE IN THE PRODUCT REFERENCES",
+      "productImages": [
+        "./product-images/electronics-front.png",
+        "./product-images/electronics-side.png"
+      ],
+      "referenceImages": [],
+      "copyItems": [
+        {
+          "id": "approved-headline",
+          "kind": "slogan",
+          "text": "REPLACE WITH APPROVED COPY",
+          "textByLocale": {
+            "zh-TW": "REPLACE WITH APPROVED TRADITIONAL CHINESE COPY"
+          },
+          "locale": "zh-TW",
+          "location": "top-right",
+          "render": "overlay"
+        }
+      ],
+      "constraints": {},
+      "imageCount": 3,
+      "seed": "electronics-zh-tw-run-01"
+    }
+  ]
+}

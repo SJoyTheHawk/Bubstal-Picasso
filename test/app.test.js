@@ -26,7 +26,7 @@ function loadApp(overrides = {}) {
     });
     const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
     vm.runInContext(`${source}\n;globalThis.testApi = {\n` +
-        'PLATFORM_TEMPLATES, CATEGORY_PRESETS, PLATFORM_LOCALES, getLocaleFromPlatform, localizeCopyItems, MARKET_PROFILES, getMarketFromPlatform, SHAPER_ROLES, loadBuyerMotivationSkill, buildFallbackPlan, validateShaperPlan, buildShaperPayload, shapeBatch, buildPromptRecord, compilePromptRecords, buildBatchPromptRecord, getSelectedAssets, generatePrompts, previewPrompts, copyPreviewPrompt, ' +
+        'PLATFORM_TEMPLATES, CATEGORY_PRESETS, PLATFORM_LOCALES, getLocaleFromPlatform, localizeCopyItems, MARKET_PROFILES, getMarketFromPlatform, SHAPER_ROLES, loadBuyerMotivationSkill, buildFallbackPlan, validateRawShaperPlan, validateShaperPlan, buildShaperPayload, shapeBatch, buildPromptRecord, compilePromptRecords, buildBatchPromptRecord, getSelectedAssets, generatePrompts, previewPrompts, copyPreviewPrompt, ' +
         'callNanoBananaAPI, generateSlotsWithConcurrency, exportCurrentBatch, setState(value) { state = value; }, getState() { return state; }\n' +
         '};', context);
     return { context, api: context.testApi };
@@ -95,6 +95,34 @@ function baseState(platform = 'amazon-jp', category = 'beauty') {
         imageCountTouched: true,
         currentBatch: null,
         authReady: true
+    };
+}
+
+function completeShaperPlan(plan, locale = 'ja-JP') {
+    return {
+        planFormatVersion: '1.0',
+        id: 'plan_test',
+        planSource: 'shaper',
+        shapedAt: '2026-09-28T00:00:00.000Z',
+        model: 'gemini-3.5-flash',
+        productRead: {
+            verificationNeed: 'medium', purchaseType: 'one-off', infoLocation: 'both',
+            anglesSupplied: 1, notes: 'Visible product image',
+            buyerMotivation: { primary: 'B1_Functional', confidence: 0.75 }
+        },
+        countRationale: 'Operator fixed the image count.',
+        ...plan,
+        slots: plan.slots.map(slot => ({
+            outputLocale: locale,
+            instructionLanguage: 'en',
+            copyItems: [],
+            visualElements: {
+                backgroundType: 'neutral-solid', productTreatment: 'centered-isolated',
+                layoutComposition: 'product-dominant', colorPalette: 'product-accurate',
+                lifestyleLevel: 'none', textStrategy: 'text-free'
+            },
+            ...slot
+        }))
     };
 }
 
@@ -426,7 +454,7 @@ test('prompt preview shapes once, displays compiled prompts, and caches the plan
             return {
                 ok: true,
                 async json() {
-                    return { candidates: [{ content: { parts: [{ text: JSON.stringify({
+                    return { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(completeShaperPlan({
                         resolvedImageCount: 3,
                         batchTone: { character: 'Clear', palette: 'Red and white', mood: 'Direct', finish: 'Clean' },
                         slots: Array.from({ length: 3 }, (_, index) => ({
@@ -439,7 +467,7 @@ test('prompt preview shapes once, displays compiled prompts, and caches the plan
                             copyPlacement: 'none',
                             derivedFrom: 'open'
                         }))
-                    }) }] } }] };
+                    }, 'zh-TW')) }] } }] };
                 }
             };
         },
@@ -520,11 +548,11 @@ test('prompt preview shows an immediate busy state while Gemini planning is pend
     resolveFetch({
         ok: true,
         async json() {
-            return { candidates: [{ content: { parts: [{ text: JSON.stringify({
+            return { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(completeShaperPlan({
                 resolvedImageCount: 1,
                 batchTone: { character: 'Clear', palette: 'White', mood: 'Direct', finish: 'Clean' },
                 slots: [{ index: 1, role: 'hero', direction: 'Front view', differentiator: 'Only hero', sceneRationale: 'Clear verification', sceneSource: 'shaper', copyPlacement: 'none', derivedFrom: 'open' }]
-            }) }] } }] };
+            })) }] } }] };
         }
     });
     await pendingPreview;
@@ -648,9 +676,12 @@ test('Shaper payload sends product images and the exact precedence chain', () =>
     const payload = api.buildShaperPayload(api.PLATFORM_TEMPLATES['shopee-tw']);
     const parts = payload.contents[0].parts;
     assert.match(parts[0].text, /Must Have > platform hard rule > operator Preferred > Shaper > model freedom/);
+    assert.match(parts[0].text, /adjacent objects do not prove in-box contents/);
+    assert.match(parts[0].text, /These limits do not prescribe backgrounds, colors, lighting, composition, or scene details that remain Open/);
     assert.match(parts[0].text, /Summer 2027/);
     assert.equal(parts.filter(part => part.inlineData).length, 1);
     assert.equal(payload.generationConfig.responseMimeType, 'application/json');
+    assert.equal(payload.generationConfig.maxOutputTokens, 12288);
 });
 
 test('valid Shaper plan drives prompt roles, tone, direction, and provenance', () => {
@@ -672,6 +703,43 @@ test('valid Shaper plan drives prompt roles, tone, direction, and provenance', (
     assert.match(record.prompt, /Show the exact bottle plainly/);
     assert.match(record.prompt, /Clinical/);
     assert.match(record.prompt, /pure white #FFFFFF/);
+});
+
+test('compiled image prompts carry Shaper visual elements and approved copy', () => {
+    const { api } = loadApp();
+    const state = baseState('shopee-tw', 'beauty');
+    state.imageCount = 1;
+    state.locale = 'zh-TW';
+    state.copyItems = [{
+        id: 'headline', kind: 'slogan', text: 'Approved headline', locale: 'zh-TW',
+        location: 'top-right', render: 'overlay'
+    }];
+    api.setState(state);
+    state.shaperPlan = api.validateShaperPlan({
+        id: 'plan_visuals',
+        batchTone: { character: 'Fresh', palette: 'Coral', mood: 'Confident', finish: 'Clean' },
+        resolvedImageCount: 1,
+        slots: [{
+            index: 1, role: 'hero', direction: 'Show the exact product clearly.',
+            differentiator: 'Only hero view.', sceneRationale: 'Verification view.', sceneSource: 'shaper',
+            copyPlacement: 'reserve-overlay-area', outputLocale: 'zh-TW', instructionLanguage: 'en',
+            copyItems: [{ id: 'headline', kind: 'slogan', text: 'Approved headline', locale: 'zh-TW', location: 'top-right', render: 'overlay' }],
+            derivedFrom: 'open',
+            visualElements: {
+                backgroundType: 'gradient', productTreatment: 'angled-with-shadow', layoutComposition: 'balanced',
+                colorPalette: 'warm-enhanced', lifestyleLevel: 'subtle-props', textStrategy: 'reserve-overlay-space'
+            }
+        }]
+    }, api.PLATFORM_TEMPLATES['shopee-tw']);
+
+    const record = api.buildPromptRecord(0);
+    assert.match(record.prompt, /VISUAL ELEMENT PLAN/);
+    assert.match(record.prompt, /Background category: gradient/);
+    assert.match(record.prompt, /Product treatment: angled-with-shadow/);
+    assert.match(record.prompt, /TEXT TO ADD AFTER GENERATION/);
+    assert.match(record.prompt, /headline \(slogan\) at top-right: Approved headline/);
+    assert.equal(record.visualElements.colorPalette, 'warm-enhanced');
+    assert.equal(record.copyPlan.source, 'shaper');
 });
 
 test('each slot prompt names sibling differentiators and keeps its own distinct target', () => {
@@ -936,6 +1004,57 @@ test('Shaper response schema carries the platform locale and copy contract per s
     assert.match(promptText, /Never translate, paraphrase, transliterate, or invent copy/);
 });
 
+test('Shaper copy schema leaves localized maps to the operator input', () => {
+    const { api } = loadApp();
+    api.setState(baseState('shopee-tw', 'beauty'));
+    const payload = api.buildShaperPayload(api.PLATFORM_TEMPLATES['shopee-tw']);
+    const copySchema = payload.generationConfig.responseSchema.properties.slots.items.properties.copyItems.items;
+    assert.equal(Object.hasOwn(copySchema.properties, 'textByLocale'), false);
+    assert.equal(payload.contents[0].parts[0].text.includes('textByLocale'), false);
+});
+
+test('raw Shaper validation rejects implicit, duplicate, and invented slot data', () => {
+    const { api } = loadApp();
+    const state = baseState('amazon-jp', 'beauty');
+    state.imageCount = 2;
+    api.setState(state);
+    const plan = completeShaperPlan({
+        resolvedImageCount: 2,
+        batchTone: { character: 'Clear', palette: 'Neutral', mood: 'Direct', finish: 'Clean' },
+        slots: [
+            { index: 1, role: 'hero', direction: 'A', differentiator: 'Hero', sceneRationale: 'Clear', sceneSource: 'shaper', copyPlacement: 'none', derivedFrom: 'open' },
+            { index: 1, role: 'feature-detail', direction: 'B', differentiator: 'Detail', sceneRationale: 'Clear', sceneSource: 'shaper', copyPlacement: 'none', derivedFrom: 'open' }
+        ]
+    });
+    plan.slots[1].copyItems = [{ id: 'invented', kind: 'slogan', text: 'Invented', locale: 'ja-JP', location: 'top-left', render: 'overlay' }];
+    const validation = api.validateRawShaperPlan(plan, api.PLATFORM_TEMPLATES['amazon-jp']);
+    assert.equal(validation.valid, false);
+    assert.match(validation.issues.join('\n'), /must be unique/);
+    assert.match(validation.issues.join('\n'), /approved copy/);
+});
+
+test('shapeBatch retries one invalid raw plan before using the result', async () => {
+    let calls = 0;
+    const { api } = loadApp({
+        async fetch() {
+            calls += 1;
+            const state = {
+                resolvedImageCount: 1,
+                batchTone: { character: 'Clear', palette: 'Neutral', mood: 'Direct', finish: 'Clean' },
+                slots: [{ index: 1, role: 'hero', direction: 'Front view', differentiator: 'Hero', sceneRationale: 'Clear', sceneSource: 'shaper', copyPlacement: 'none', derivedFrom: 'open' }]
+            };
+            const plan = calls === 1 ? state : completeShaperPlan(state);
+            return { ok: true, async json() { return { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(plan) }] } }] }; } };
+        }
+    });
+    const state = baseState('amazon-jp', 'beauty');
+    state.imageCount = 1;
+    api.setState(state);
+    const plan = await api.shapeBatch();
+    assert.equal(calls, 2);
+    assert.equal(plan.planSource, 'shaper');
+});
+
 test('validated Shaper plans retain only operator-approved copy', () => {
     const { api } = loadApp();
     const state = baseState('shopee-tw', 'beauty');
@@ -998,13 +1117,80 @@ test('Shaper payload includes market context as soft per-slot guidance', () => {
     const payload = api.buildShaperPayload(api.PLATFORM_TEMPLATES['shopee-tw']);
     const promptText = payload.contents[0].parts[0].text;
 
-    assert.match(promptText, /MARKET CULTURAL CONTEXT: Taiwan Market/);
-    assert.match(promptText, /Contextual imagery preference: medium/);
-    assert.match(promptText, /Information density tolerance: high/);
-    assert.match(promptText, /Lifestyle identification: medium/);
-    assert.match(promptText, /soft priors/i);
+    assert.match(promptText, /MARKET CONTEXT HYPOTHESIS: Taiwan Market/);
+    assert.match(promptText, /Contextual imagery signal: medium/);
+    assert.match(promptText, /Information density signal: high/);
+    assert.match(promptText, /Lifestyle identification signal: medium/);
+    assert.match(promptText, /soft prior/i);
+    assert.match(promptText, /unverified hypotheses for experiment comparison/i);
+    assert.match(promptText, /never state that consumers in this market prefer a treatment based on this profile alone/i);
     assert.match(promptText, /Each slot may make a different visual choice/);
-    assert.match(promptText, /do not force one background, palette, layout, or text strategy across the batch/i);
+    assert.match(promptText, /do not force one background, palette, layout, lifestyle level, or text strategy across the batch/i);
+});
+
+test('Shaper payload includes evidence-qualified visual selection guidance', () => {
+    const { api } = loadApp();
+    const state = baseState('shopee-tw', 'beauty');
+    state.market = 'taiwan';
+    api.setState(state);
+
+    const payload = api.buildShaperPayload(api.PLATFORM_TEMPLATES['shopee-tw']);
+    const promptText = payload.contents[0].parts[0].text;
+
+    assert.match(promptText, /VISUAL ELEMENT SELECTION GUIDANCE/);
+    assert.match(promptText, /platform hard rules, product evidence and category, approved operator constraints and brand direction, buyer motivation, market context, then model freedom/i);
+    assert.match(promptText, /Market context is a soft prior and a testable hypothesis/i);
+    assert.match(promptText, /market profile is an unverified hypothesis, not research evidence/i);
+    assert.match(promptText, /do not state a market-specific consumer preference as fact based only on the market label or profile/i);
+    assert.match(promptText, /If you use market context, identify it as a hypothesis/i);
+    assert.match(promptText, /Return exactly resolvedImageCount slot objects, with indexes 1 through resolvedImageCount/i);
+    assert.match(promptText, /Do not select a treatment solely because of a country, platform, or buyer-motivation label/i);
+    assert.match(promptText, /Each slot may make a different visual choice/i);
+    assert.match(promptText, /ordered, complementary batch story/i);
+    assert.match(promptText, /human-presence only when a person materially explains fit, scale, or application/i);
+    assert.match(promptText, /model-rendered-headline only when approved copy exists and the experiment explicitly permits model-rendered text/i);
+    assert.match(promptText, /exact colors, materials, scene details, props, people, lighting, camera angle, and composition open to model judgment/i);
+    assert.match(promptText, /visualElements labels must remain a concise description of the image job/i);
+});
+
+test('Phase 2.3c benchmark arms keep inputs and schema constant', () => {
+    const { api } = loadApp();
+    const state = baseState('shopee-tw', 'beauty');
+    state.market = 'taiwan';
+    state.locale = 'zh-TW';
+    state.copyItems = [{
+        id: 'headline',
+        kind: 'slogan',
+        text: 'Approved headline',
+        locale: 'zh-TW',
+        location: 'top-right',
+        render: 'overlay'
+    }];
+    api.setState(state);
+
+    const template = api.PLATFORM_TEMPLATES['shopee-tw'];
+    const arms = ['unguided', 'original', 'revised'].map(guidanceArm => ({
+        guidanceArm,
+        payload: api.buildShaperPayload(template, { guidanceArm })
+    }));
+    const promptText = Object.fromEntries(arms.map(({ guidanceArm, payload }) => [
+        guidanceArm,
+        payload.contents[0].parts[0].text
+    ]));
+
+    assert.doesNotMatch(promptText.unguided, /MARKET CULTURAL CONTEXT|VISUAL ELEMENT SELECTION GUIDANCE/);
+    assert.match(promptText.original, /MARKET CULTURAL CONTEXT: Taiwan Market/);
+    assert.doesNotMatch(promptText.original, /VISUAL ELEMENT SELECTION GUIDANCE/);
+    assert.doesNotMatch(promptText.revised, /MARKET CULTURAL CONTEXT: Taiwan Market/);
+    assert.match(promptText.revised, /MARKET CONTEXT HYPOTHESIS: Taiwan Market/);
+    assert.match(promptText.revised, /VISUAL ELEMENT SELECTION GUIDANCE/);
+    assert.match(promptText.revised, /ordered, complementary batch story/);
+
+    const baseline = arms[0].payload;
+    arms.slice(1).forEach(({ payload }) => {
+        assert.deepEqual(payload.generationConfig, baseline.generationConfig);
+        assert.deepEqual(payload.contents[0].parts.slice(1), baseline.contents[0].parts.slice(1));
+    });
 });
 
 test('prompt preview displays buyer motivation when present', async () => {
@@ -1024,7 +1210,7 @@ test('prompt preview displays buyer motivation when present', async () => {
             return {
                 ok: true,
                 async json() {
-                    return { candidates: [{ content: { parts: [{ text: JSON.stringify({
+                    return { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(completeShaperPlan({
                         resolvedImageCount: 2,
                         batchTone: { character: 'Technical', palette: 'Gray', mood: 'Precise', finish: 'Sharp' },
                         productRead: {
@@ -1044,7 +1230,7 @@ test('prompt preview displays buyer motivation when present', async () => {
                             { index: 1, role: 'hero', direction: 'A', differentiator: 'Main', sceneRationale: 'Clear', sceneSource: 'shaper', copyPlacement: 'none', derivedFrom: 'open' },
                             { index: 2, role: 'feature-detail', direction: 'B', differentiator: 'Detail', sceneRationale: 'Specs', sceneSource: 'shaper', copyPlacement: 'none', derivedFrom: 'open' }
                         ]
-                    }) }] } }] };
+                    })) }] } }] };
                 }
             };
         },

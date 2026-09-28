@@ -1,5 +1,7 @@
 # Phase 2.3 Implementation Plan
 
+For the work remaining after the external review and live benchmark failures, follow [Phase 2.3 Completion Plan](./PHASE_2_3_COMPLETION_PLAN.md). It records corrections to the review, proposed prompt/schema changes, full-batch evaluation, and the Phase 4 compiler dependency for image review.
+
 ## Objective
 
 Add evidence-qualified visual element guidance to the Shaper planning prompt while preserving model freedom over concrete creative decisions.
@@ -58,7 +60,7 @@ Evaluate three prompt arms using the same product references, slot roles, aspect
 
 1. No visual-selection guidance.
 2. Original market-specific guidance.
-3. Revised evidence-qualified guidance.
+3. Revised hypothesis-qualified market context plus evidence-qualified guidance.
 
 Record results by locale, product category, and model. Evaluate:
 
@@ -79,12 +81,14 @@ The revised guidance is approved for production use only when it does not materi
 
 | Checkpoint | Deliverable | Status |
 |---|---|---|
-| 2.3a | Revised guidance added to the Shaper prompt | Pending implementation |
-| 2.3b | Prompt-contract and regression tests pass | Pending implementation |
-| 2.3c | Comparative benchmark reviewed and approved | Pending evaluation |
+| 2.3a | Revised guidance added to the Shaper prompt | Complete |
+| 2.3b | Prompt-contract and regression tests pass | Complete |
+| 2.3c | Controlled benchmark pack and approval gate | Harness complete; image review pending |
 
 Related documents:
 
 - [Marketing validation and revision](./PHASE_2_3_MARKETING_VALIDATION.md)
 - [Prompt refactor implementation guide](./PROMPT_REFACTOR_IMPLEMENTATION_GUIDE.md)
 - [Implementation status](./PROMPT_REFACTOR_IMPLEMENTATION_STATUS.md)
+- [Phase 2.3c benchmark pack](../benchmarks/phase-2-3c/README.md)
+- [Phase 1 to 2 test guide](./PHASE_1_TO_2_TEST_GUIDE.md)

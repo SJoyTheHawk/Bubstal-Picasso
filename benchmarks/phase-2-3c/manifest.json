@@ -1,0 +1,56 @@
+{
+  "protocolVersion": "2.3c",
+  "shaperModel": "gemini-3.5-flash",
+  "imageModel": "gemini-3-pro-image",
+  "seedPolicy": "Use the same provider seed when supported; otherwise repeat each arm with the same numbered run IDs and record the provider response ID.",
+  "cases": [
+    {
+      "caseId": "beauty-amazon-jp-ja-jp",
+      "platform": "amazon-jp",
+      "market": "japan",
+      "locale": "ja-JP",
+      "category": "beauty",
+      "productName": "celimax The Vita A Retinal Shot Tightening Booster (0.51 fl.oz)",
+      "productVariant": "0.51 Ounce (Pack of 1)",
+      "categoryFacts": "0.1% Retinal, 3% Matrixyl, High-Strength Retinoid, Anti Aging, Pore Minimizer, Fine Lines, Skin Firming, Korean Skin Care",
+      "productImages": [
+        "./51zdLqgadJL._SL1500_.jpg"
+      ],
+      "referenceImages": [],
+      "copyItems": [],
+      "constraints": {},
+      "imageCount": 3,
+      "seed": "beauty-ja-run-01"
+    },
+    {
+      "caseId": "electronics-shopee-tw-zh-tw",
+      "platform": "shopee-tw",
+      "market": "taiwan",
+      "locale": "zh-TW",
+      "category": "electronics",
+      "productName": "Insta360 X6, 8K 360 Camera with 1/1.1'' Sensors",
+      "productVariant": "Midnight Black",
+      "categoryFacts": "Action Camera, Dual Custom Square 1/1.1\" Sensors, Triple AI Chip, Replaceable Lens 2.0, 140 minutes 8K Video",
+      "productImages": [
+        "./71Ng8cPRY+L._AC_SL1500_.jpg"
+      ],
+      "referenceImages": [],
+      "copyItems": [
+        {
+          "id": "approved-headline",
+          "kind": "slogan",
+          "text": "Capture Every Moment",
+          "textByLocale": {
+            "zh-TW": "捕捉每個珍貴時刻"
+          },
+          "locale": "zh-TW",
+          "location": "top-right",
+          "render": "overlay"
+        }
+      ],
+      "constraints": {},
+      "imageCount": 3,
+      "seed": "electronics-zh-tw-run-01"
+    }
+  ]
+}

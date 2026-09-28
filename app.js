@@ -747,6 +747,117 @@ function parseShaperResponse(raw) {
     try { return JSON.parse(unfenced); } catch (_) { return null; }
 }
 
+function validateRawShaperPlan(raw, template = PLATFORM_TEMPLATES[state.platform]) {
+    const parsed = parseShaperResponse(raw);
+    const issues = [];
+    const fallback = buildFallbackPlan(template);
+    const expectedCount = state.imageCountTouched
+        ? Math.max(template.minImageCount, Math.min(Number(state.imageCount) || template.imageCount, template.maxImageCount))
+        : Math.max(template.minImageCount, Math.min(Number(parsed?.resolvedImageCount) || template.imageCount, template.maxImageCount));
+    const addIssue = (path, message) => issues.push(`${path}: ${message}`);
+    const requiredObject = (value, path, fields) => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            addIssue(path, 'must be an object');
+            return false;
+        }
+        fields.forEach(field => {
+            if (value[field] === undefined || value[field] === null) addIssue(`${path}.${field}`, 'is required');
+        });
+        return true;
+    };
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        addIssue('response', 'must be a JSON object');
+        return { valid: false, issues, parsed: null, expectedSlotCount: expectedCount };
+    }
+    ['planFormatVersion', 'id', 'planSource', 'shapedAt', 'model', 'productRead', 'batchTone', 'resolvedImageCount', 'countRationale', 'slots']
+        .forEach(field => {
+            if (parsed[field] === undefined || parsed[field] === null) addIssue(field, 'is required');
+        });
+    if (parsed.planFormatVersion !== PLAN_FORMAT_VERSION) addIssue('planFormatVersion', `must be ${PLAN_FORMAT_VERSION}`);
+    if (parsed.planSource !== 'shaper') addIssue('planSource', 'must be shaper');
+    if (parsed.model !== SHAPER_MODEL_ID) addIssue('model', `must be ${SHAPER_MODEL_ID}`);
+    if (parsed.resolvedImageCount !== expectedCount) addIssue('resolvedImageCount', `must equal ${expectedCount}`);
+    requiredObject(parsed.productRead, 'productRead', ['verificationNeed', 'purchaseType', 'infoLocation', 'anglesSupplied', 'notes', 'buyerMotivation']);
+    requiredObject(parsed.batchTone, 'batchTone', ['character', 'palette', 'mood', 'finish']);
+    if (parsed.productRead) {
+        if (!['low', 'medium', 'high'].includes(parsed.productRead.verificationNeed)) addIssue('productRead.verificationNeed', 'has an invalid value');
+        if (!['repeat', 'one-off'].includes(parsed.productRead.purchaseType)) addIssue('productRead.purchaseType', 'has an invalid value');
+        if (!['packaging', 'listing', 'both'].includes(parsed.productRead.infoLocation)) addIssue('productRead.infoLocation', 'has an invalid value');
+        const motivation = parsed.productRead.buyerMotivation;
+        if (requiredObject(motivation, 'productRead.buyerMotivation', ['primary', 'confidence'])) {
+            const codes = ['B1_Functional', 'B2_Evidence', 'B3_Lifestyle', 'B4_Aesthetic', 'B5_Value', 'B6_Convenience', 'B7_Expert'];
+            if (!codes.includes(motivation.primary)) addIssue('productRead.buyerMotivation.primary', 'has an invalid value');
+            if (typeof motivation.confidence !== 'number' || motivation.confidence < 0 || motivation.confidence > 1) addIssue('productRead.buyerMotivation.confidence', 'must be a number from 0 to 1');
+        }
+    }
+    if (!Array.isArray(parsed.slots)) {
+        addIssue('slots', 'must be an array');
+        return { valid: false, issues, parsed, expectedSlotCount: expectedCount };
+    }
+    if (parsed.slots.length !== expectedCount) addIssue('slots', `must contain exactly ${expectedCount} items`);
+    const indexes = new Set();
+    const validRoles = SHAPER_ROLES;
+    const visualEnums = {
+        backgroundType: ['pure-white', 'neutral-solid', 'gradient', 'contextual-scene', 'lifestyle-environment'],
+        productTreatment: ['centered-isolated', 'angled-with-shadow', 'in-context', 'in-use'],
+        layoutComposition: ['product-dominant', 'balanced', 'environmental'],
+        colorPalette: ['product-accurate', 'warm-enhanced', 'cool-enhanced', 'vibrant-pop'],
+        lifestyleLevel: ['none', 'subtle-props', 'full-scene', 'human-presence'],
+        textStrategy: ['text-free', 'reserve-overlay-space', 'model-rendered-headline']
+    };
+    const copyKinds = ['slogan', 'short-description', 'badge', 'label'];
+    const copyLocations = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right', 'custom'];
+    parsed.slots.forEach((slot, position) => {
+        const path = `slots[${position}]`;
+        if (!slot || typeof slot !== 'object' || Array.isArray(slot)) {
+            addIssue(path, 'must be an object');
+            return;
+        }
+        ['index', 'role', 'direction', 'differentiator', 'sceneRationale', 'sceneSource', 'copyPlacement', 'outputLocale', 'instructionLanguage', 'copyItems', 'derivedFrom', 'visualElements']
+            .forEach(field => { if (slot[field] === undefined || slot[field] === null) addIssue(`${path}.${field}`, 'is required'); });
+        if (!Number.isInteger(slot.index) || slot.index < 1 || slot.index > expectedCount) addIssue(`${path}.index`, `must be an integer from 1 to ${expectedCount}`);
+        else if (indexes.has(slot.index)) addIssue(`${path}.index`, 'must be unique');
+        else indexes.add(slot.index);
+        if (!validRoles.has(slot.role)) addIssue(`${path}.role`, 'has an invalid value');
+        ['direction', 'differentiator', 'sceneRationale', 'outputLocale'].forEach(field => { if (typeof slot[field] !== 'string' || !slot[field].trim()) addIssue(`${path}.${field}`, 'must be a non-empty string'); });
+        if (!['shaper', 'operator'].includes(slot.sceneSource)) addIssue(`${path}.sceneSource`, 'has an invalid value');
+        if (!['none', 'model-rendered', 'reserve-overlay-area'].includes(slot.copyPlacement)) addIssue(`${path}.copyPlacement`, 'has an invalid value');
+        if (!['en', 'localized'].includes(slot.instructionLanguage)) addIssue(`${path}.instructionLanguage`, 'has an invalid value');
+        if (!['open', 'platform-rule', 'operator'].includes(slot.derivedFrom)) addIssue(`${path}.derivedFrom`, 'has an invalid value');
+        const fallbackSlot = fallback.slots[slot.index - 1];
+        if (fallbackSlot && slot.outputLocale !== fallbackSlot.outputLocale) addIssue(`${path}.outputLocale`, `must equal ${fallbackSlot.outputLocale}`);
+        if (!Array.isArray(slot.copyItems)) {
+            addIssue(`${path}.copyItems`, 'must be an array');
+        } else {
+            const approved = new Map((fallbackSlot?.copyItems || []).map(item => [item.id, item]));
+            const seenCopy = new Set();
+            slot.copyItems.forEach((item, copyIndex) => {
+                const copyPath = `${path}.copyItems[${copyIndex}]`;
+                if (!item || typeof item !== 'object' || Array.isArray(item)) { addIssue(copyPath, 'must be an object'); return; }
+                if (Object.hasOwn(item, 'textByLocale')) addIssue(`${copyPath}.textByLocale`, 'must remain in operator input');
+                ['id', 'kind', 'text', 'locale', 'location', 'render'].forEach(field => { if (item[field] === undefined || item[field] === null) addIssue(`${copyPath}.${field}`, 'is required'); });
+                const expected = approved.get(item.id);
+                if (!expected) addIssue(`${copyPath}.id`, 'must reference approved copy');
+                if (seenCopy.has(item.id)) addIssue(`${copyPath}.id`, 'must be unique');
+                seenCopy.add(item.id);
+                if (!copyKinds.includes(item.kind)) addIssue(`${copyPath}.kind`, 'has an invalid value');
+                if (typeof item.text !== 'string' || !item.text.trim()) addIssue(`${copyPath}.text`, 'must be a non-empty string');
+                if (expected) {
+                    ['kind', 'text', 'locale', 'location', 'render'].forEach(field => { if (item[field] !== expected[field]) addIssue(`${copyPath}.${field}`, 'must match approved copy'); });
+                }
+                if (!copyLocations.includes(item.location)) addIssue(`${copyPath}.location`, 'has an invalid value');
+                if (!['overlay', 'model-rendered'].includes(item.render)) addIssue(`${copyPath}.render`, 'has an invalid value');
+            });
+        }
+        const visuals = slot.visualElements;
+        if (!requiredObject(visuals, `${path}.visualElements`, Object.keys(visualEnums))) return;
+        Object.entries(visualEnums).forEach(([field, values]) => { if (!values.includes(visuals[field])) addIssue(`${path}.visualElements.${field}`, 'has an invalid value'); });
+    });
+    for (let index = 1; index <= expectedCount; index += 1) if (!indexes.has(index)) addIssue('slots.index', `is missing ${index}`);
+    return { valid: issues.length === 0, issues, parsed, expectedSlotCount: expectedCount };
+}
+
 function validateShaperPlan(raw, template = PLATFORM_TEMPLATES[state.platform]) {
     const parsed = parseShaperResponse(raw);
     if (!parsed || !Array.isArray(parsed.slots)) return buildFallbackPlan(template);
@@ -754,7 +865,9 @@ function validateShaperPlan(raw, template = PLATFORM_TEMPLATES[state.platform]) 
     const targetCount = state.imageCountTouched
         ? Math.max(template.minImageCount, Math.min(Number(state.imageCount) || template.imageCount, template.maxImageCount))
         : Math.max(template.minImageCount, Math.min(Number(parsed.resolvedImageCount) || template.imageCount, template.maxImageCount));
-    const sourceSlots = new Map(parsed.slots.map((slot, position) => [Number(slot?.index) || position + 1, slot]));
+    const sourceSlots = new Map(parsed.slots
+        .filter(slot => Number.isInteger(slot?.index) && slot.index > 0)
+        .map(slot => [slot.index, slot]));
     const slots = Array.from({ length: targetCount }, (_, index) => {
         const candidate = sourceSlots.get(index + 1);
         if (!candidate || typeof candidate !== 'object') {
@@ -877,9 +990,12 @@ function loadBuyerMotivationSkill() {
     return null;
 }
 
-function buildShaperPayload(template) {
+function buildShaperPayload(template, options = {}) {
     const assets = getSelectedAssets();
     const constraints = getActiveConstraints(template);
+    const guidanceArm = ['unguided', 'original', 'revised'].includes(options.guidanceArm)
+        ? options.guidanceArm
+        : 'revised';
     const marketId = MARKET_PROFILES[state.market]
         ? state.market
         : getMarketFromPlatform(state.platform);
@@ -916,7 +1032,6 @@ function buildShaperPayload(template) {
                 id: '<stable id>',
                 kind: 'slogan|short-description|badge|label',
                 text: '<exact approved text>',
-                textByLocale: { '<locale>': '<approved localized text>' },
                 locale: '<BCP-47 locale>',
                 location: 'top-left|top-center|top-right|bottom-left|bottom-center|bottom-right|custom',
                 render: 'overlay|model-rendered'
@@ -936,6 +1051,10 @@ function buildShaperPayload(template) {
     // Load buyer motivation skill from file
     const buyerMotivationSkill = loadBuyerMotivationSkill();
 
+    const marketContextGuidance = `MARKET CULTURAL CONTEXT: ${marketProfile.name}\nMarket visual preferences:\n- Contextual imagery preference: ${marketProfile.contextualImageryPreference}\n- Information density tolerance: ${marketProfile.informationDensityTolerance}\n- Lifestyle identification: ${marketProfile.lifestyleIdentification}\nVisual tendencies: ${JSON.stringify(marketProfile.visualTendencies)}\n\nUse these market preferences as soft priors for visualElements choices per slot. They must not override product facts, platform hard rules, operator constraints, or buyer motivation. Each slot may make a different visual choice; do not force one background, palette, layout, or text strategy across the batch. The visualElements labels are shorthand categories, so keep exact colors, materials, scene details, and composition open when the evidence supports them.`;
+    const revisedMarketContextGuidance = `MARKET CONTEXT HYPOTHESIS: ${marketProfile.name}\nThe following profile values are unverified hypotheses for experiment comparison, not research evidence or fixed audience facts:\n- Contextual imagery signal: ${marketProfile.contextualImageryPreference}\n- Information density signal: ${marketProfile.informationDensityTolerance}\n- Lifestyle identification signal: ${marketProfile.lifestyleIdentification}\n- Visual tendency hypotheses: ${JSON.stringify(marketProfile.visualTendencies)}\n\nUse these signals only when they are consistent with supplied product evidence, references, operator direction, platform rules, or tested market evidence. Never state that consumers in this market prefer a treatment based on this profile alone, and never use the market label as the sole reason for a slot's visual choice.`;
+    const visualSelectionGuidance = `VISUAL ELEMENT SELECTION GUIDANCE:\nFor each slot, choose visualElements to serve the slot's communication objective. Consider, in order: platform hard rules, product evidence and category, approved operator constraints and brand direction, buyer motivation, market context, then model freedom for all remaining decisions.\n\nPlan the slots as one ordered, complementary batch story: each slot should add useful product information or context that is not already covered by its siblings. Use one shared batchTone for coherence, while allowing different backgrounds, palettes, layouts, lifestyle levels, and text strategies by slot.\n\nMarket context is a soft prior and a testable hypothesis. Do not select a treatment solely because of a country, platform, or buyer-motivation label. Do not force one background, palette, layout, lifestyle level, or text strategy across the batch. Each slot may make a different visual choice.\n\nGround rationale in this case's supplied product facts, references, operator direction, or platform rules. The market profile is an unverified hypothesis, not research evidence: do not state a market-specific consumer preference as fact based only on the market label or profile. If you use market context, identify it as a hypothesis and never make it the sole reason for a visual choice.\n\nUse pure-white only when a platform rule or strong verification objective supports it. Use contextual-scene or lifestyle-environment when the slot needs to communicate usage, scale, compatibility, or lifestyle fit. Use human-presence only when a person materially explains fit, scale, or application and the product evidence supports the depiction. Use model-rendered-headline only when approved copy exists and the experiment explicitly permits model-rendered text; otherwise use text-free or reserve-overlay-space.\n\nTreat gradient, warm-enhanced, cool-enhanced, and vibrant-pop as optional stylistic treatments. Choose them when the product, category, brand direction, supplied references, campaign, or tested market evidence supports them. Do not infer a color treatment from Japan, Taiwan, China, or any other market alone.\n\nKeep exact colors, materials, scene details, props, people, lighting, camera angle, and composition open to model judgment unless constrained by supplied facts, platform rules, or operator input. When evidence is weak, choose the least assumptive valid treatment that preserves product clarity.\n\nEvery slot must include complete visualElements, and the visualElements labels must remain a concise description of the image job rather than a complete art direction.`;
+
     const prompt = [
         'You are Shaper, an eCommerce image batch planner. Return JSON only, with no markdown fences.',
         `Closed roles: ${Array.from(SHAPER_ROLES).join(', ')}. Never invent a role.`,
@@ -944,12 +1063,15 @@ function buildShaperPayload(template) {
         'You may only decide what is Open. Preserve Must Have facts and platform hard rules. Do not instruct creativity, variety, imagination, or originality.',
         'Use sceneRationale to justify plain or scene-based choices. Plain slots with no scene are valid and preferred when buyer verification is high.',
         buyerMotivationSkill || 'BUYER MOTIVATION FRAMEWORK: Infer the primary buyer motivation from product images and category. Choose ONE primary from: B1_Functional (function, performance, problem-solving), B2_Evidence (specs, proof, certification), B3_Lifestyle (usage context, daily life fit), B4_Aesthetic (style, taste, brand feeling), B5_Value (price, bundle, promotion), B6_Convenience (ease, speed, low friction), B7_Expert (technical detail, precision, comparison). Choose at most TWO secondary motivations. Report confidence 0.0-1.0 (0.90-1.00 = directly visible, 0.70-0.89 = strong inference, 0.50-0.69 = plausible, below 0.50 = unknown). Use motivation to weight role selection: B1 emphasize benefit/usage/feature-detail; B2 emphasize feature-detail/material-detail/scale, reduce lifestyle; B3 emphasize lifestyle/usage/benefit; B4 emphasize hero/alternate-view/material-detail; B5 emphasize package-contents/benefit, reserve overlay; B6 emphasize usage/package-contents/scale; B7 emphasize feature-detail/material-detail/scale, minimize lifestyle.',
-        `MARKET CULTURAL CONTEXT: ${marketProfile.name}\nMarket visual preferences:\n- Contextual imagery preference: ${marketProfile.contextualImageryPreference}\n- Information density tolerance: ${marketProfile.informationDensityTolerance}\n- Lifestyle identification: ${marketProfile.lifestyleIdentification}\nVisual tendencies: ${JSON.stringify(marketProfile.visualTendencies)}\n\nUse these market preferences as soft priors for visualElements choices per slot. They must not override product facts, platform hard rules, operator constraints, or buyer motivation. Each slot may make a different visual choice; do not force one background, palette, layout, or text strategy across the batch. The visualElements labels are shorthand categories, so keep exact colors, materials, scene details, and composition open when the evidence supports them.`,
+        ...(guidanceArm === 'original' ? [marketContextGuidance] : []),
         `LANGUAGE AND COPY CONTRACT:\nOutput locale: ${state.locale || getLocaleFromPlatform(state.platform)}\nInstruction language arm: ${state.instructionLanguage === 'localized' ? 'localized' : 'en'}\nUse the output locale for visible short descriptions, slogans, badges, and labels. Copy is supplied as exact approved values with an explicit location and render mode. Never translate, paraphrase, transliterate, or invent copy. Keep visual instruction language in English unless instructionLanguage is explicitly set to the localized benchmark arm. Render only supplied strings exactly once when model-rendered; for overlay copy, reserve the named clean area and render no text.`,
-        `Approved copy items for this batch: ${JSON.stringify(localizeCopyItems(state.copyItems, state.locale || getLocaleFromPlatform(state.platform)))}. Do not create copy items when this list is empty.`,
+        `Approved copy items for this batch: ${JSON.stringify(localizeCopyItems(state.copyItems, state.locale || getLocaleFromPlatform(state.platform)).map(({ id, kind, text, locale, location, render }) => ({ id, kind, text, locale, location, render })))}. Do not create copy items when this list is empty.`,
+        ...(guidanceArm === 'revised' ? [revisedMarketContextGuidance, visualSelectionGuidance] : []),
         'Only use usage contexts supported by supplied product facts. Depict people only when operator input supports the audience; do not infer children or safety claims from season.',
+        'Evidence boundary for every slot: product photos establish visible appearance, but adjacent objects do not prove in-box contents. Name an accessory as included only when supplied facts explicitly confirm it. Do not add documentation, bundle items, performance claims, ruggedness, stabilization, use timing, or precision claims by inference from product category or visual style. Do not assert a national or platform audience preference without supplied or tested evidence. When facts are insufficient for a package-contents role, choose another useful role grounded in the verified product instead. These limits do not prescribe backgrounds, colors, lighting, composition, or scene details that remain Open.',
         'When category creative preference or batch direction seeds a scene concept, build around it and set sceneSource to operator; otherwise use shaper.',
         `Platform: ${template.name}; aspect ratio: ${template.aspectRatio}; image-count bounds: ${template.minImageCount}-${template.maxImageCount}; default: ${template.imageCount}; hard rules: ${template.slotRules.join(' | ')}`,
+        'Return exactly resolvedImageCount slot objects, with indexes 1 through resolvedImageCount and no missing or duplicate indexes.',
         `Category guidance: ${CATEGORY_PRESETS[state.category]?.guidance || ''}`,
         `Product: ${state.productName}; variant: ${state.productVariant}; facts: ${state.categoryFacts}`,
         `Campaign season (target, paired with market ${template.name}): ${state.season || 'unspecified'}; promotion: ${state.promotion || 'none'}; batch direction: ${state.batchDirection || 'none'}`,
@@ -1002,7 +1124,6 @@ function buildShaperPayload(template) {
                     id: { type: 'STRING' },
                     kind: { type: 'STRING', enum: ['slogan', 'short-description', 'badge', 'label'] },
                     text: { type: 'STRING' },
-                    textByLocale: { type: 'OBJECT' },
                     locale: { type: 'STRING' },
                     location: { type: 'STRING' },
                     render: { type: 'STRING', enum: ['overlay', 'model-rendered'] }
@@ -1020,7 +1141,7 @@ function buildShaperPayload(template) {
         }
     };
     responseSchema.required.push('planFormatVersion', 'id', 'planSource', 'shapedAt', 'model');
-    return { contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', responseSchema, responseModalities: ['TEXT'], maxOutputTokens: 8192 } };
+    return { contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', responseSchema, responseModalities: ['TEXT'], maxOutputTokens: 12288 } };
 }
 
 async function shapeBatch() {
@@ -1029,11 +1150,21 @@ async function shapeBatch() {
     let plan;
     try {
         if (!state.authReady) throw new Error('Shaper authentication unavailable');
-        const response = await fetch('/api/shape', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildShaperPayload(template)) });
-        if (!response.ok) throw new Error(`Shaper request failed (${response.status})`);
-        const body = await response.json();
-        const text = body?.candidates?.[0]?.content?.parts?.find(part => part.text)?.text || body?.text || body;
-        plan = validateShaperPlan(text, template);
+        const request = buildShaperPayload(template);
+        let lastValidation;
+        for (let attempt = 1; attempt <= 2; attempt += 1) {
+            const response = await fetch('/api/shape', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
+            if (!response.ok) throw new Error(`Shaper request failed (${response.status})`);
+            const body = await response.json();
+            const text = body?.candidates?.[0]?.content?.parts?.find(part => part.text)?.text || body?.text || body;
+            lastValidation = validateRawShaperPlan(text, template);
+            const finishReason = body?.candidates?.[0]?.finishReason;
+            if (lastValidation.valid && finishReason === 'STOP') {
+                plan = validateShaperPlan(text, template);
+                break;
+            }
+            if (attempt === 2) throw new Error(`Shaper returned an invalid plan after one retry: ${finishReason || 'no stop reason'}; ${lastValidation.issues.slice(0, 3).join('; ')}`);
+        }
     } catch (error) {
         console.warn('Shaper unavailable; using fallback plan:', error.message);
         plan = buildFallbackPlan(template);
@@ -1067,6 +1198,11 @@ function describeReferences(referenceImages) {
     });
 }
 
+function buildVisualElementInstruction(visualElements, outputLocale) {
+    const visual = visualElements || {};
+    return `VISUAL ELEMENT PLAN\nBackground category: ${visual.backgroundType || 'model choice'}\nProduct treatment: ${visual.productTreatment || 'model choice'}\nLayout composition: ${visual.layoutComposition || 'model choice'}\nColor palette category: ${visual.colorPalette || 'model choice'}\nLifestyle level: ${visual.lifestyleLevel || 'model choice'}\nText strategy: ${visual.textStrategy || 'text-free'}\nUse these as slot-level guidance for the ${outputLocale} output. Preserve product truth and platform rules. Choose the exact colors, materials, lighting, props, camera angle, spacing, and composition yourself when they are not supplied facts or operator constraints. Do not force this slot's treatment onto sibling slots.`;
+}
+
 function buildPromptRecord(imageIndex) {
     const template = PLATFORM_TEMPLATES[state.platform];
     const category = CATEGORY_PRESETS[state.category];
@@ -1078,7 +1214,17 @@ function buildPromptRecord(imageIndex) {
     const constraints = getActiveConstraints(template);
     const assets = getSelectedAssets();
     const referenceRelationships = describeReferences(assets.referenceImages);
-    const copyPlan = buildCopyPlan(constraints, imageIndex);
+    const outputLocale = slot?.outputLocale || state.locale || getLocaleFromPlatform(state.platform);
+    const planCopyItems = plan.planSource === 'shaper' && Array.isArray(slot?.copyItems) ? slot.copyItems : [];
+    const copyPlan = planCopyItems.length > 0
+        ? {
+            source: 'shaper',
+            modelRenderedText: planCopyItems.filter(item => item.render === 'model-rendered').map(item => ({ label: `${item.id} (${item.kind})`, value: item.text, location: item.location })),
+            overlayText: planCopyItems.filter(item => item.render === 'overlay').map(item => ({ label: `${item.id} (${item.kind}) at ${item.location}`, value: item.text }))
+        }
+        : plan.planSource === 'shaper'
+            ? { source: 'shaper', modelRenderedText: [], overlayText: [] }
+            : buildCopyPlan(constraints, imageIndex);
     const mustHave = constraints.filter(item => item.level === 'must-have');
     const preferred = constraints.filter(item => item.level === 'preferred');
     const isAmazonMain = state.platform === 'amazon-jp' && imageIndex === 0;
@@ -1087,6 +1233,7 @@ function buildPromptRecord(imageIndex) {
         `Create a new ${template.name} eCommerce product photograph using the attached product photos as identity references.`,
         `IMAGE ${imageIndex + 1} OF ${state.imageCount}\nPurpose: ${purpose}\nShaper direction: ${slot?.direction || ''}\nDifferentiator: ${slot?.differentiator || ''}\nScene rationale: ${slot?.sceneRationale || ''}`,
         `PLATFORM AND SLOT REQUIREMENTS\n${platformRule}\nIf Shaper direction conflicts with this platform rule, the platform rule wins.\nShared tone: ${JSON.stringify(plan.batchTone || template.tone)}`,
+        buildVisualElementInstruction(slot?.visualElements, outputLocale),
         `PRODUCT IDENTITY - MUST PRESERVE\nProduct name: ${state.productName.trim()}\nVariant: ${state.productVariant.trim() || 'Use the exact variant shown in the product photos.'}\nTreat every attached product photo as another view of the same product. Preserve its geometry, proportions, colors, materials, packaging, visible labels, logos, quantity, and included components. Do not redesign or replace the product.\nCategory guardrail: ${category.guidance}`
     ];
 
@@ -1120,7 +1267,11 @@ function buildPromptRecord(imageIndex) {
     }
 
     if (copyPlan.modelRenderedText.length > 0) {
-        sections.push(`MODEL-RENDERED TEXT\nRender only this supplied short headline, exactly as quoted: "${copyPlan.modelRenderedText[0].value}". Make it legible and appropriate to the batch tone. Do not add other promotional wording.`);
+        if (copyPlan.source === 'shaper') {
+            sections.push(`MODEL-RENDERED TEXT\nRender only these exact approved strings in ${outputLocale}, once each, at the specified locations. Do not translate, paraphrase, transliterate, or add other text.\n${copyPlan.modelRenderedText.map(item => `${item.label} at ${item.location}: "${item.value}"`).join('\n')}`);
+        } else {
+            sections.push(`MODEL-RENDERED TEXT\nRender only this supplied short headline, exactly as quoted: "${copyPlan.modelRenderedText[0].value}". Make it legible and appropriate to the batch tone. Do not add other promotional wording.`);
+        }
     }
 
     if (copyPlan.overlayText.length > 0) {
@@ -1140,7 +1291,7 @@ function buildPromptRecord(imageIndex) {
         promptFormatVersion: PROMPT_FORMAT_VERSION,
         platform: state.platform,
         category: state.category,
-        outputLocale: slot?.outputLocale || state.locale || getLocaleFromPlatform(state.platform),
+        outputLocale,
         instructionLanguage: slot?.instructionLanguage || state.instructionLanguage || 'en',
         copyItems: slot?.copyItems || [],
         shaperPlanId: plan.id,
@@ -1153,6 +1304,7 @@ function buildPromptRecord(imageIndex) {
         })),
         referenceRelationships,
         copyPlan,
+        visualElements: slot?.visualElements || null,
         prompt: sections.join('\n\n')
     };
 }
@@ -1180,6 +1332,7 @@ function buildBatchPromptRecord(promptRecords) {
     const isSlotSection = section => (
         section.startsWith('IMAGE ')
         || section.startsWith('PLATFORM AND SLOT REQUIREMENTS')
+        || section.startsWith('VISUAL ELEMENT PLAN')
         || section.startsWith('MODEL-RENDERED TEXT')
         || section.startsWith('TEXT TO ADD AFTER GENERATION')
         || section.startsWith('TEXT HANDLING')
@@ -1193,6 +1346,7 @@ function buildBatchPromptRecord(promptRecords) {
         const sections = splitSections(record);
         const imageSection = sections.find(section => section.startsWith('IMAGE '));
         const platformSection = sections.find(section => section.startsWith('PLATFORM AND SLOT REQUIREMENTS'));
+        const visualSection = sections.find(section => section.startsWith('VISUAL ELEMENT PLAN'));
         const slotRequirements = platformSection
             ?.split('\n')
             .filter(line => !line.startsWith('Shared tone:'))
@@ -1208,6 +1362,7 @@ function buildBatchPromptRecord(promptRecords) {
             `SLOT ${record.index}`,
             imageSection,
             slotRequirements,
+            visualSection,
             ...textSections
         ].filter(Boolean).join('\n\n');
     });
@@ -1666,8 +1821,7 @@ async function generatePrompts() {
 }
 
 // Backend-neutral image request; the server selects Qwen or Gemini.
-async function callNanoBananaAPI(promptRecord, assets) {
-    try {
+function buildImagePayload(promptRecord, assets) {
         const toInlineData = (dataUrl) => {
             const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
             if (!match) throw new Error('An uploaded image has an unsupported format.');
@@ -1699,7 +1853,7 @@ async function callNanoBananaAPI(promptRecord, assets) {
 
         // Vertex AI generateContent shape. The server adds project, location and
         // the ADC bearer token, so the model name is not part of the body.
-        const payload = {
+        return {
             contents: [{ role: 'user', parts }],
             generationConfig: {
                 responseModalities: ['TEXT', 'IMAGE'],
@@ -1710,6 +1864,11 @@ async function callNanoBananaAPI(promptRecord, assets) {
                 }
             }
         };
+}
+
+async function callNanoBananaAPI(promptRecord, assets) {
+    try {
+        const payload = buildImagePayload(promptRecord, assets);
 
         // The backend applies ADC and forwards the request without exposing a token.
         const response = await fetch('/api/generate', {

@@ -1,0 +1,23 @@
+{
+  "sourceRun": "/private/tmp/phase2-step2-live.json",
+  "reviewedAt": "2026-09-28",
+  "status": "needs-plan-revision",
+  "cases": [
+    {
+      "caseId": "beauty-amazon-jp-ja-jp",
+      "arms": [
+        { "arm": "unguided", "approved": false, "notes": "Slot 3 assumes an evening skincare routine; no routine or usage timing is supplied." },
+        { "arm": "original", "approved": false, "notes": "Slot 3 states that the lifestyle treatment is highly valued in Japan without supplied evidence." },
+        { "arm": "revised", "approved": false, "notes": "Slot 3 describes precision application and fine-line targeting beyond the supplied visual evidence." }
+      ]
+    },
+    {
+      "caseId": "electronics-shopee-tw-zh-tw",
+      "arms": [
+        { "arm": "unguided", "approved": false, "notes": "Slot 2's differentiator asserts ruggedness without supplied evidence; slot 3 says the accessories are confirmed as in-box contents." },
+        { "arm": "original", "approved": false, "notes": "Slot 2's differentiator asserts stabilization; slot 3 adds documentation not visible in the input; slot 1 presents a Taiwan shopper preference as fact." },
+        { "arm": "revised", "approved": false, "notes": "Slot 2 invents a lens guard setup; slot 3 invents a branded accessories envelope and asserts exact bundle contents." }
+      ]
+    }
+  ]
+}

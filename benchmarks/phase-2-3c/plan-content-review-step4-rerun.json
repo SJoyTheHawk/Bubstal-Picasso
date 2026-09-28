@@ -1,0 +1,47 @@
+{
+  "sourceRun": "/private/tmp/phase2-step4-rerun.json",
+  "reviewedAt": "2026-09-28",
+  "status": "needs-plan-revision",
+  "cases": [
+    {
+      "caseId": "beauty-amazon-jp-ja-jp",
+      "arms": [
+        {
+          "arm": "unguided",
+          "approved": false,
+          "notes": "Slot 3 assumes an evening skincare routine and absorption; the input does not establish usage timing."
+        },
+        {
+          "arm": "original",
+          "approved": false,
+          "notes": "Slot 3 states a Japanese market preference without supplied or tested evidence."
+        },
+        {
+          "arm": "revised",
+          "approved": false,
+          "notes": "Slot 3 treats a spa-like application experience as an established product fact."
+        }
+      ]
+    },
+    {
+      "caseId": "electronics-shopee-tw-zh-tw",
+      "arms": [
+        {
+          "arm": "unguided",
+          "approved": false,
+          "notes": "Slot 3 treats adjacent cable and pouch as confirmed in-box contents; slot 2 adds unsupported performance framing."
+        },
+        {
+          "arm": "original",
+          "approved": false,
+          "notes": "Slot 3 calls adjacent items confirmed in-box accessories and adds an unsupported documents envelope."
+        },
+        {
+          "arm": "revised",
+          "approved": false,
+          "notes": "Slot 3 asserts confirmed accessories/manual without supplied bundle facts; slot 3 usage adds an unverified outdoor scenario."
+        }
+      ]
+    }
+  ]
+}
