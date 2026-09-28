@@ -1004,6 +1004,20 @@ test('Shaper response schema carries the platform locale and copy contract per s
     assert.match(promptText, /Never translate, paraphrase, transliterate, or invent copy/);
 });
 
+test('Shopee TW image prompts explicitly separate Traditional Chinese output from English instructions', () => {
+    const { api } = loadApp();
+    const state = baseState('shopee-tw', 'beauty');
+    state.locale = 'zh-TW';
+    state.instructionLanguage = 'en';
+    api.setState(state);
+
+    const record = api.buildPromptRecord(0);
+    assert.equal(record.outputLocale, 'zh-TW');
+    assert.match(record.prompt, /Output locale: zh-TW \(Traditional Chinese \(繁體中文\)\)/);
+    assert.match(record.prompt, /Instruction language: English/);
+    assert.match(record.prompt, /Keep visual instructions in English; this does not change the output locale/);
+});
+
 test('Shaper copy schema leaves localized maps to the operator input', () => {
     const { api } = loadApp();
     api.setState(baseState('shopee-tw', 'beauty'));

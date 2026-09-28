@@ -1203,6 +1203,17 @@ function buildVisualElementInstruction(visualElements, outputLocale) {
     return `VISUAL ELEMENT PLAN\nBackground category: ${visual.backgroundType || 'model choice'}\nProduct treatment: ${visual.productTreatment || 'model choice'}\nLayout composition: ${visual.layoutComposition || 'model choice'}\nColor palette category: ${visual.colorPalette || 'model choice'}\nLifestyle level: ${visual.lifestyleLevel || 'model choice'}\nText strategy: ${visual.textStrategy || 'text-free'}\nUse these as slot-level guidance for the ${outputLocale} output. Preserve product truth and platform rules. Choose the exact colors, materials, lighting, props, camera angle, spacing, and composition yourself when they are not supplied facts or operator constraints. Do not force this slot's treatment onto sibling slots.`;
 }
 
+function buildLanguageContract(outputLocale, instructionLanguage) {
+    const normalizedLocale = outputLocale || 'en-US';
+    const localized = instructionLanguage === 'localized';
+    const languageName = normalizedLocale === 'zh-TW'
+        ? 'Traditional Chinese (繁體中文)'
+        : normalizedLocale === 'ja-JP'
+            ? 'Japanese (日本語)'
+            : normalizedLocale;
+    return `LANGUAGE AND COPY CONTRACT\nOutput locale: ${normalizedLocale} (${languageName})\nInstruction language: ${localized ? languageName : 'English'}\nUse the output locale for any visible slogans, labels, badges, or other rendered copy. Keep product names, trademarks, and supplied text exactly as provided. Do not translate, paraphrase, transliterate, or invent copy. ${localized ? `Write any model-authored visible copy in ${languageName}.` : 'Keep visual instructions in English; this does not change the output locale.'}`;
+}
+
 function buildPromptRecord(imageIndex) {
     const template = PLATFORM_TEMPLATES[state.platform];
     const category = CATEGORY_PRESETS[state.category];
@@ -1233,6 +1244,7 @@ function buildPromptRecord(imageIndex) {
         `Create a new ${template.name} eCommerce product photograph using the attached product photos as identity references.`,
         `IMAGE ${imageIndex + 1} OF ${state.imageCount}\nPurpose: ${purpose}\nShaper direction: ${slot?.direction || ''}\nDifferentiator: ${slot?.differentiator || ''}\nScene rationale: ${slot?.sceneRationale || ''}`,
         `PLATFORM AND SLOT REQUIREMENTS\n${platformRule}\nIf Shaper direction conflicts with this platform rule, the platform rule wins.\nShared tone: ${JSON.stringify(plan.batchTone || template.tone)}`,
+        buildLanguageContract(outputLocale, slot?.instructionLanguage || state.instructionLanguage || 'en'),
         buildVisualElementInstruction(slot?.visualElements, outputLocale),
         `PRODUCT IDENTITY - MUST PRESERVE\nProduct name: ${state.productName.trim()}\nVariant: ${state.productVariant.trim() || 'Use the exact variant shown in the product photos.'}\nTreat every attached product photo as another view of the same product. Preserve its geometry, proportions, colors, materials, packaging, visible labels, logos, quantity, and included components. Do not redesign or replace the product.\nCategory guardrail: ${category.guidance}`
     ];
